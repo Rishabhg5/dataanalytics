@@ -116,6 +116,31 @@ export default function Reports() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      {/* Progress Indicator */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="text-sm">Upload</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="text-sm">Prepare</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="text-sm">Analytics</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="text-sm">Insights</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-2 text-indigo-600 font-medium">
+            <span className="text-sm">Reports</span>
+          </div>
+        </div>
+      </div>
+
       <div className="mb-8">
         <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-4">
           Reports & Export
