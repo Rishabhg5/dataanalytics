@@ -44,6 +44,7 @@ export default function Analytics() {
     if (selectedDataset) {
       fetchDatasetData(selectedDataset);
       fetchStatistics(selectedDataset);
+      fetchAutoCharts(selectedDataset);
     }
   }, [selectedDataset]);
 
