@@ -438,68 +438,73 @@ export default function Analytics() {
             </div>
           )}
 
-          {/* Chart Customization */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Customize Your Visualization</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Chart Type */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Chart Type</label>
-                <select
-                  data-testid="chart-type-selector"
-                  value={selectedChartType}
-                  onChange={(e) => setSelectedChartType(e.target.value)}
-                  className="w-full h-11 rounded-lg border border-slate-300 bg-white px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                >
-                  {CHART_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
+          {/* Custom Chart Builder */}
+          {!showAutoCharts && (
+            <>
+              {/* Chart Customization */}
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Customize Your Visualization</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Chart Type */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Chart Type</label>
+                    <select
+                      data-testid="chart-type-selector"
+                      value={selectedChartType}
+                      onChange={(e) => setSelectedChartType(e.target.value)}
+                      className="w-full h-11 rounded-lg border border-slate-300 bg-white px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                    >
+                      {CHART_TYPES.map(type => (
+                        <option key={type.value} value={type.value}>{type.label}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* X-Axis */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">X-Axis Column</label>
-                <select
-                  data-testid="x-axis-selector"
-                  value={xAxisColumn}
-                  onChange={(e) => setXAxisColumn(e.target.value)}
-                  className="w-full h-11 rounded-lg border border-slate-300 bg-white px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                >
-                  {allColumns.map(col => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
+                  {/* X-Axis */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">X-Axis Column</label>
+                    <select
+                      data-testid="x-axis-selector"
+                      value={xAxisColumn}
+                      onChange={(e) => setXAxisColumn(e.target.value)}
+                      className="w-full h-11 rounded-lg border border-slate-300 bg-white px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                    >
+                      {allColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Y-Axis */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Y-Axis Columns (Numeric)</label>
-                <div className="border border-slate-300 rounded-lg p-3 max-h-32 overflow-y-auto bg-white">
-                  {numericColumns.map(col => (
-                    <label key={col} className="flex items-center gap-2 mb-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                      <input
-                        type="checkbox"
-                        checked={yAxisColumns.includes(col)}
-                        onChange={() => handleYAxisToggle(col)}
-                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-600"
-                      />
-                      <span className="text-sm text-slate-900">{col}</span>
-                    </label>
-                  ))}
+                  {/* Y-Axis */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Y-Axis Columns (Numeric)</label>
+                    <div className="border border-slate-300 rounded-lg p-3 max-h-32 overflow-y-auto bg-white">
+                      {numericColumns.map(col => (
+                        <label key={col} className="flex items-center gap-2 mb-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                          <input
+                            type="checkbox"
+                            checked={yAxisColumns.includes(col)}
+                            onChange={() => handleYAxisToggle(col)}
+                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-600"
+                          />
+                          <span className="text-sm text-slate-900">{col}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Dynamic Chart */}
-          <div data-testid="custom-chart" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
-              {CHART_TYPES.find(t => t.value === selectedChartType)?.label || 'Chart'}
-            </h3>
-            {renderChart()}
-          </div>
+              {/* Dynamic Chart */}
+              <div data-testid="custom-chart" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">
+                  {CHART_TYPES.find(t => t.value === selectedChartType)?.label || 'Chart'}
+                </h3>
+                {renderChart()}
+              </div>
+            </>
+          )}
 
           {/* Detailed Statistics Table */}
           <div data-testid="stats-table" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
