@@ -182,12 +182,20 @@ export default function Reports() {
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          data-testid={`pdf-btn-${dataset.id}`}
+                          onClick={() => handleGeneratePDF(dataset.id, dataset.name)}
+                          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium flex items-center gap-2"
+                        >
+                          <FileDown className="w-4 h-4" />
+                          PDF Report
+                        </button>
+                        <button
                           data-testid={`export-btn-${dataset.id}`}
                           onClick={() => handleExportCSV(dataset.id, dataset.name)}
                           className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-2"
                         >
                           <FileDown className="w-4 h-4" />
-                          Export CSV
+                          CSV
                         </button>
                         <button
                           data-testid={`delete-btn-${dataset.id}`}
