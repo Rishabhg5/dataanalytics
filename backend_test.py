@@ -210,6 +210,7 @@ class AnalyticsAPITester:
             200,
             data={
                 "dataset_id": self.uploaded_dataset_id,
+                "analysis_type": "trends",
                 "parameters": {"column": "sales"}
             }
         )
