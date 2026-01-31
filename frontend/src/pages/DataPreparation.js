@@ -262,6 +262,20 @@ export default function DataPreparation() {
           <p className="text-slate-600">No data found</p>
         </div>
       )}
+
+      {/* Next Step Button */}
+      {datasetData && (
+        <div className="flex justify-end mt-6">
+          <button
+            data-testid="proceed-to-analytics-btn"
+            onClick={handleProceedToAnalytics}
+            className="flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+          >
+            Proceed to Analytics
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
