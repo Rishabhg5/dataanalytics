@@ -64,6 +64,32 @@ export default function Reports() {
     }
   };
 
+  const handleGeneratePDF = async (datasetId, datasetName) => {
+    try {
+      toast.info('Generating comprehensive PDF report...');
+      
+      const response = await axios.get(`${API}/reports/${datasetId}/pdf`, {
+        responseType: 'blob',
+      });
+      
+      // Download PDF
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analytics_report_${datasetName.replace(/\.[^/.]+$/, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('PDF report generated successfully');
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast.error('Failed to generate PDF report');
+    }
+  };
+
   const handleDelete = async (datasetId) => {
     if (!window.confirm('Are you sure you want to delete this dataset?')) return;
     
