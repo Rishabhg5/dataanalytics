@@ -94,6 +94,15 @@ export default function Analytics() {
     }
   };
 
+  const fetchAutoCharts = async (id) => {
+    try {
+      const response = await axios.get(`${API}/datasets/${id}/auto-charts`);
+      setAutoCharts(response.data);
+    } catch (error) {
+      console.error('Error fetching auto charts:', error);
+    }
+  };
+
   const numericColumns = datasetData?.dataset.column_names.filter(
     col => datasetData.dataset.column_types[col].includes('int') || 
            datasetData.dataset.column_types[col].includes('float')
