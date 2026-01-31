@@ -325,6 +325,119 @@ export default function Analytics() {
             })}
           </div>
 
+          {/* Toggle Between Auto and Custom Charts */}
+          <div className="flex gap-3 mb-6">
+            <button
+              onClick={() => setShowAutoCharts(true)}
+              className={`flex-1 h-11 px-6 rounded-lg font-medium transition-all ${
+                showAutoCharts ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Predefined Charts with Insights
+            </button>
+            <button
+              onClick={() => setShowAutoCharts(false)}
+              className={`flex-1 h-11 px-6 rounded-lg font-medium transition-all ${
+                !showAutoCharts ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Custom Chart Builder
+            </button>
+          </div>
+
+          {/* Auto-Generated Charts with Insights */}
+          {showAutoCharts && autoCharts && (
+            <div className="space-y-6 mb-6">
+              {autoCharts.charts.map((chart, idx) => (
+                <div key={idx} className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900 mb-1">{chart.title}</h3>
+                      <p className="text-sm text-slate-600">{chart.description}</p>
+                    </div>
+                    <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full uppercase">
+                      {chart.type}
+                    </span>
+                  </div>
+                  
+                  <ResponsiveContainer width="100%" height={350}>
+                    {chart.type === 'bar' && (
+                      <BarChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey={chart.x_axis} stroke="#64748B" angle={-45} textAnchor="end" height={80} />
+                        <YAxis stroke="#64748B" />
+                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                        <Legend />
+                        {chart.y_axis.map((col, i) => (
+                          <Bar key={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </BarChart>
+                    )}
+                    {chart.type === 'line' && (
+                      <LineChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey={chart.x_axis} stroke="#64748B" />
+                        <YAxis stroke="#64748B" />
+                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                        <Legend />
+                        {chart.y_axis.map((col, i) => (
+                          <Line key={col} type="monotone" dataKey={col} stroke={COLORS[i % COLORS.length]} strokeWidth={2} />
+                        ))}
+                      </LineChart>
+                    )}
+                    {chart.type === 'area' && (
+                      <AreaChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey={chart.x_axis} stroke="#64748B" />
+                        <YAxis stroke="#64748B" />
+                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                        <Legend />
+                        {chart.y_axis.map((col, i) => (
+                          <Area key={col} type="monotone" dataKey={col} fill={COLORS[i % COLORS.length]} stroke={COLORS[i % COLORS.length]} fillOpacity={0.6} />
+                        ))}
+                      </AreaChart>
+                    )}
+                    {chart.type === 'pie' && (
+                      <PieChart>
+                        <Pie
+                          data={chart.data}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, value }) => `${name}: ${value}`}
+                          outerRadius={120}
+                          dataKey={chart.value_column}
+                          nameKey={chart.label_column}
+                        >
+                          {chart.data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    )}
+                    {chart.type === 'scatter' && (
+                      <ScatterChart>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis type="number" dataKey={chart.x_axis} name={chart.x_axis} stroke="#64748B" />
+                        <YAxis type="number" dataKey={chart.y_axis} name={chart.y_axis} stroke="#64748B" />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                        <Legend />
+                        <Scatter name="Data Points" data={chart.data} fill="#4F46E5" />
+                      </ScatterChart>
+                    )}
+                  </ResponsiveContainer>
+                  
+                  <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                    <p className="text-sm font-medium text-indigo-900 mb-1">💡 Insight:</p>
+                    <p className="text-sm text-indigo-800">{chart.insight}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Chart Customization */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
             <h3 className="text-lg font-semibold text-slate-900 mb-4">Customize Your Visualization</h3>
