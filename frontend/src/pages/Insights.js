@@ -70,11 +70,13 @@ export default function Insights() {
     try {
       const response = await axios.post(`${API}/analytics/trends`, {
         dataset_id: selectedDataset,
+        analysis_type: 'trends',
         parameters: { column: selectedColumn },
       });
       setTrends(response.data);
     } catch (error) {
       console.error('Trend analysis error:', error);
+      toast.error('Failed to analyze trends');
     }
   };
 
@@ -84,12 +86,14 @@ export default function Insights() {
     try {
       const response = await axios.post(`${API}/analytics/anomalies`, {
         dataset_id: selectedDataset,
+        analysis_type: 'anomalies',
         columns: [selectedColumn],
         parameters: { contamination: 0.1 },
       });
       setAnomalies(response.data);
     } catch (error) {
       console.error('Anomaly detection error:', error);
+      toast.error('Failed to detect anomalies');
     }
   };
 
@@ -99,11 +103,13 @@ export default function Insights() {
     try {
       const response = await axios.post(`${API}/analytics/forecast`, {
         dataset_id: selectedDataset,
+        analysis_type: 'forecast',
         parameters: { column: selectedColumn, periods: 10 },
       });
       setForecast(response.data);
     } catch (error) {
       console.error('Forecast error:', error);
+      toast.error('Failed to generate forecast');
     }
   };
 
