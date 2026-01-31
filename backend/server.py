@@ -100,7 +100,7 @@ async def root():
 
 @api_router.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)):
-    """Upload CSV or Excel file"""
+    """Upload CSV, Excel, JSON, or Text file"""
     try:
         contents = await file.read()
         
@@ -109,8 +109,22 @@ async def upload_dataset(file: UploadFile = File(...)):
             df = pd.read_csv(io.BytesIO(contents))
         elif file.filename.endswith(('.xlsx', '.xls')):
             df = pd.read_excel(io.BytesIO(contents))
+        elif file.filename.endswith('.json'):
+            json_data = json.loads(contents.decode('utf-8'))
+            if isinstance(json_data, list):
+                df = pd.DataFrame(json_data)
+            elif isinstance(json_data, dict):
+                df = pd.DataFrame([json_data])
+            else:
+                raise HTTPException(status_code=400, detail="Invalid JSON format")
+        elif file.filename.endswith('.txt'):
+            # Try to read as CSV with tab or comma delimiter
+            try:
+                df = pd.read_csv(io.BytesIO(contents), delimiter='\t')
+            except:
+                df = pd.read_csv(io.BytesIO(contents), delimiter=',')
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file format")
+            raise HTTPException(status_code=400, detail="Unsupported file format. Supported: CSV, Excel, JSON, TXT")
         
         # Store data in MongoDB
         dataset_id = str(uuid.uuid4())
@@ -132,6 +146,112 @@ async def upload_dataset(file: UploadFile = File(...)):
             id=dataset_id,
             name=file.filename,
             filename=file.filename,
+            rows=len(df),
+            columns=len(df.columns),
+            column_names=df.columns.tolist(),
+            column_types=column_types
+        )
+        
+        doc = dataset.model_dump()
+        doc['uploaded_at'] = doc['uploaded_at'].isoformat()
+        await db.datasets.insert_one(doc)
+        
+        return dataset
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/datasets/upload-from-api")
+async def upload_from_api(api_url: str, headers: Optional[Dict[str, str]] = None):
+    """Upload data from API endpoint"""
+    try:
+        import requests
+        response = requests.get(api_url, headers=headers or {}, timeout=30)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        if isinstance(json_data, list):
+            df = pd.DataFrame(json_data)
+        elif isinstance(json_data, dict):
+            df = pd.DataFrame([json_data])
+        else:
+            raise HTTPException(status_code=400, detail="API response must be JSON array or object")
+        
+        # Store data
+        dataset_id = str(uuid.uuid4())
+        data_records = df.to_dict('records')
+        
+        for record in data_records:
+            for key in record:
+                record[key] = serialize_for_json(record[key])
+        
+        await db.dataset_data.insert_one({
+            "dataset_id": dataset_id,
+            "data": data_records
+        })
+        
+        column_types = {col: str(df[col].dtype) for col in df.columns}
+        dataset = Dataset(
+            id=dataset_id,
+            name=f"API_Data_{api_url.split('/')[-1]}",
+            filename=f"api_data_{dataset_id}.json",
+            rows=len(df),
+            columns=len(df.columns),
+            column_names=df.columns.tolist(),
+            column_types=column_types
+        )
+        
+        doc = dataset.model_dump()
+        doc['uploaded_at'] = doc['uploaded_at'].isoformat()
+        await db.datasets.insert_one(doc)
+        
+        return dataset
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/datasets/upload-from-mysql")
+async def upload_from_mysql(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    query: str,
+    port: int = 3306
+):
+    """Upload data from MySQL database"""
+    try:
+        import pymysql
+        
+        connection = pymysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database
+        )
+        
+        df = pd.read_sql(query, connection)
+        connection.close()
+        
+        # Store data
+        dataset_id = str(uuid.uuid4())
+        data_records = df.to_dict('records')
+        
+        for record in data_records:
+            for key in record:
+                record[key] = serialize_for_json(record[key])
+        
+        await db.dataset_data.insert_one({
+            "dataset_id": dataset_id,
+            "data": data_records
+        })
+        
+        column_types = {col: str(df[col].dtype) for col in df.columns}
+        dataset = Dataset(
+            id=dataset_id,
+            name=f"MySQL_{database}_{dataset_id[:8]}",
+            filename=f"mysql_data_{dataset_id}.csv",
             rows=len(df),
             columns=len(df.columns),
             column_names=df.columns.tolist(),
