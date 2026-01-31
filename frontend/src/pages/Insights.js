@@ -9,8 +9,12 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Insights() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const datasetIdParam = searchParams.get('dataset');
+  
   const [datasets, setDatasets] = useState([]);
-  const [selectedDataset, setSelectedDataset] = useState('');
+  const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');
   const [datasetData, setDatasetData] = useState(null);
   const [trends, setTrends] = useState(null);
   const [anomalies, setAnomalies] = useState(null);
