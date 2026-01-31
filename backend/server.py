@@ -559,6 +559,136 @@ async def delete_dataset(dataset_id: str):
     await db.dataset_data.delete_one({"dataset_id": dataset_id})
     return {"success": True}
 
+@api_router.get("/datasets/{dataset_id}/auto-charts")
+async def generate_auto_charts(dataset_id: str):
+    """Generate predefined charts automatically"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
+        df = pd.DataFrame(data_doc['data'])
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        all_cols = df.columns.tolist()
+        
+        charts = []
+        
+        # 1. Distribution Chart (Bar/Column)
+        if len(numeric_cols) >= 1 and len(all_cols) >= 1:
+            chart_data = df.head(20)[[all_cols[0]] + numeric_cols[:2]].to_dict('records')
+            for record in chart_data:
+                for key in record:
+                    record[key] = serialize_for_json(record[key])
+            
+            charts.append({
+                "type": "bar",
+                "title": "Distribution Overview",
+                "description": f"Comparison of {', '.join(numeric_cols[:2])} across {all_cols[0]}",
+                "data": chart_data,
+                "x_axis": all_cols[0],
+                "y_axis": numeric_cols[:2],
+                "insight": f"This chart shows the distribution and comparison of key metrics. Higher values in {numeric_cols[0]} indicate stronger performance in that category."
+            })
+        
+        # 2. Trend Analysis (Line Chart)
+        if len(numeric_cols) >= 1:
+            chart_data = df.head(50)[[all_cols[0]] + numeric_cols[:3]].to_dict('records')
+            for record in chart_data:
+                for key in record:
+                    record[key] = serialize_for_json(record[key])
+            
+            # Calculate trend
+            values = df[numeric_cols[0]].dropna().values[:50]
+            if len(values) > 1:
+                x = np.arange(len(values))
+                slope, _, _, _, _ = stats.linregress(x, values)
+                trend = "upward" if slope > 0 else "downward"
+            else:
+                trend = "stable"
+            
+            charts.append({
+                "type": "line",
+                "title": "Trend Analysis Over Time",
+                "description": f"Tracking patterns in {', '.join(numeric_cols[:3])}",
+                "data": chart_data,
+                "x_axis": all_cols[0],
+                "y_axis": numeric_cols[:3],
+                "insight": f"The data shows a {trend} trend. This pattern suggests {'growth and positive momentum' if trend == 'upward' else 'decline or stabilization'} in the key metrics over the observation period."
+            })
+        
+        # 3. Composition Chart (Pie)
+        if len(numeric_cols) >= 1:
+            pie_data = df.head(10)[[all_cols[0], numeric_cols[0]]].to_dict('records')
+            for record in pie_data:
+                for key in record:
+                    record[key] = serialize_for_json(record[key])
+            
+            total = df[numeric_cols[0]].sum()
+            top_value = df[numeric_cols[0]].max()
+            top_pct = (top_value / total * 100) if total > 0 else 0
+            
+            charts.append({
+                "type": "pie",
+                "title": "Composition Breakdown",
+                "description": f"Percentage distribution of {numeric_cols[0]}",
+                "data": pie_data,
+                "value_column": numeric_cols[0],
+                "label_column": all_cols[0],
+                "insight": f"The largest segment accounts for {top_pct:.1f}% of the total {numeric_cols[0]}. This distribution helps identify dominant categories and areas requiring attention."
+            })
+        
+        # 4. Comparison Chart (Area)
+        if len(numeric_cols) >= 2:
+            chart_data = df.head(30)[[all_cols[0]] + numeric_cols[:2]].to_dict('records')
+            for record in chart_data:
+                for key in record:
+                    record[key] = serialize_for_json(record[key])
+            
+            corr = df[numeric_cols[:2]].corr().iloc[0, 1] if len(numeric_cols) >= 2 else 0
+            relationship = "strong positive" if corr > 0.7 else "moderate positive" if corr > 0.3 else "weak or negative"
+            
+            charts.append({
+                "type": "area",
+                "title": "Comparative Analysis",
+                "description": f"Relationship between {numeric_cols[0]} and {numeric_cols[1]}",
+                "data": chart_data,
+                "x_axis": all_cols[0],
+                "y_axis": numeric_cols[:2],
+                "insight": f"The analysis reveals a {relationship} relationship between these variables (correlation: {corr:.2f}). This suggests {'they move together' if corr > 0.5 else 'independent patterns' if corr > -0.5 else 'inverse relationship'}."
+            })
+        
+        # 5. Correlation Scatter Plot
+        if len(numeric_cols) >= 2:
+            scatter_data = df.head(100)[numeric_cols[:2]].to_dict('records')
+            for record in scatter_data:
+                for key in record:
+                    record[key] = serialize_for_json(record[key])
+            
+            corr = df[numeric_cols[:2]].corr().iloc[0, 1]
+            
+            charts.append({
+                "type": "scatter",
+                "title": "Correlation Analysis",
+                "description": f"Scatter plot showing relationship between variables",
+                "data": scatter_data,
+                "x_axis": numeric_cols[0],
+                "y_axis": numeric_cols[1],
+                "insight": f"The scatter plot reveals a correlation coefficient of {corr:.3f}. {'Strong correlation indicates predictable patterns' if abs(corr) > 0.7 else 'Moderate correlation suggests some relationship' if abs(corr) > 0.3 else 'Low correlation indicates independent variables'}, useful for forecasting and decision-making."
+            })
+        
+        return {
+            "dataset_id": dataset_id,
+            "dataset_name": dataset['name'],
+            "charts": charts,
+            "summary": f"Generated {len(charts)} predefined charts with insights for comprehensive data visualization."
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto-chart generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/reports/{dataset_id}/pdf")
 async def generate_pdf_report(dataset_id: str):
     """Generate comprehensive PDF report with analytics"""
