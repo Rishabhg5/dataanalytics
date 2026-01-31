@@ -218,16 +218,16 @@ export default function Reports() {
       {/* Export Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
         <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <h4 className="font-semibold text-slate-900 mb-2">PDF Analytics Report</h4>
+          <p className="text-sm text-slate-600">Generate comprehensive PDF reports with descriptive statistics, trend analysis, anomaly detection, forecasting, and prescriptive recommendations.</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-6">
           <h4 className="font-semibold text-slate-900 mb-2">CSV Export</h4>
           <p className="text-sm text-slate-600">Export your cleaned and processed data as CSV files for use in other tools.</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6">
           <h4 className="font-semibold text-slate-900 mb-2">Data Management</h4>
           <p className="text-sm text-slate-600">Delete datasets you no longer need to free up space and keep your workspace organized.</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-6">
-          <h4 className="font-semibold text-slate-900 mb-2">Version Control</h4>
-          <p className="text-sm text-slate-600">Track when datasets were uploaded and maintain data lineage for compliance.</p>
         </div>
       </div>
     </div>
