@@ -235,6 +235,7 @@ class AnalyticsAPITester:
             200,
             data={
                 "dataset_id": self.uploaded_dataset_id,
+                "analysis_type": "anomalies",
                 "columns": ["sales", "profit"],
                 "parameters": {"contamination": 0.1}
             }
