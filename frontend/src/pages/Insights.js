@@ -358,6 +358,20 @@ export default function Insights() {
           <p className="text-slate-600">Select a numeric column to view insights</p>
         </div>
       )}
+
+      {/* Next Step Button */}
+      {selectedColumn && (
+        <div className="flex justify-end mt-6">
+          <button
+            data-testid="proceed-to-reports-btn"
+            onClick={handleProceedToReports}
+            className="flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+          >
+            Proceed to Reports
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
