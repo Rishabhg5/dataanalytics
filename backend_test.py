@@ -260,6 +260,7 @@ class AnalyticsAPITester:
             200,
             data={
                 "dataset_id": self.uploaded_dataset_id,
+                "analysis_type": "forecast",
                 "parameters": {"column": "sales", "periods": 5}
             }
         )
