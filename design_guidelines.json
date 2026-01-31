@@ -1,0 +1,147 @@
+{
+  "design_system": {
+    "identity": {
+      "name": "E1 Analytics",
+      "archetype": "Swiss & High-Contrast (Modified for Softness)",
+      "tone": "Professional, Clear, Trustworthy, Minimal",
+      "theme_mode": "light"
+    },
+    "typography": {
+      "font_family": {
+        "headings": "Outfit, sans-serif",
+        "body": "Inter, sans-serif",
+        "mono": "JetBrains Mono, monospace"
+      },
+      "scale": {
+        "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+        "h2": "text-3xl md:text-4xl font-semibold tracking-tight",
+        "h3": "text-2xl font-semibold tracking-tight",
+        "h4": "text-xl font-medium tracking-tight",
+        "body_lg": "text-lg leading-relaxed",
+        "body_base": "text-base leading-relaxed",
+        "body_sm": "text-sm leading-relaxed text-muted-foreground",
+        "caption": "text-xs font-medium uppercase tracking-wider text-muted-foreground"
+      }
+    },
+    "colors": {
+      "palette": {
+        "primary": {
+          "DEFAULT": "#4F46E5",
+          "foreground": "#FFFFFF",
+          "hover": "#4338CA"
+        },
+        "secondary": {
+          "DEFAULT": "#F1F5F9",
+          "foreground": "#0F172A"
+        },
+        "background": {
+          "DEFAULT": "#FFFFFF",
+          "subtle": "#F8FAFC"
+        },
+        "surface": {
+          "DEFAULT": "#FFFFFF",
+          "hover": "#F8FAFC"
+        },
+        "text": {
+          "primary": "#0F172A",
+          "secondary": "#475569",
+          "tertiary": "#94A3B8"
+        },
+        "border": {
+          "DEFAULT": "#E2E8F0",
+          "subtle": "#F1F5F9"
+        },
+        "status": {
+          "success": "#10B981",
+          "warning": "#F59E0B",
+          "error": "#EF4444",
+          "info": "#3B82F6"
+        }
+      },
+      "gradients": {
+        "primary": "from-indigo-600 to-violet-600",
+        "subtle": "from-slate-50 to-slate-100"
+      }
+    },
+    "spacing": {
+      "container_padding": "p-6 md:p-8 lg:p-12",
+      "section_gap": "gap-8 md:gap-12",
+      "component_gap": "gap-4 md:gap-6"
+    },
+    "visual_enhancers": {
+      "radius": "rounded-xl",
+      "shadows": {
+        "card": "shadow-sm hover:shadow-md transition-shadow duration-200",
+        "float": "shadow-lg shadow-indigo-500/10"
+      },
+      "borders": "border border-slate-200",
+      "glass": "bg-white/80 backdrop-blur-md border-white/20"
+    },
+    "layout": {
+      "grid_system": "grid grid-cols-1 md:grid-cols-12 gap-6",
+      "dashboard_grid": "grid grid-cols-1 md:grid-cols-4 gap-6",
+      "max_width": "max-w-7xl mx-auto"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-6 rounded-lg font-medium transition-all active:scale-95",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-6 rounded-lg font-medium transition-all active:scale-95",
+      "ghost": "hover:bg-slate-100 text-slate-700 h-10 px-4 rounded-lg font-medium transition-all",
+      "outline": "border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-6 rounded-lg font-medium transition-all"
+    },
+    "cards": {
+      "base": "bg-white border border-slate-200 rounded-xl shadow-sm p-6",
+      "interactive": "bg-white border border-slate-200 rounded-xl shadow-sm p-6 hover:border-indigo-200 hover:shadow-md transition-all cursor-pointer"
+    },
+    "inputs": {
+      "base": "flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    }
+  },
+  "assets": {
+    "images": {
+      "hero_bg": {
+        "url": "https://images.unsplash.com/photo-1765046255478-55efc763637c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBkYXRhJTIwdmlzdWFsaXphdGlvbiUyMGJhY2tncm91bmQlMjBsaWdodHxlbnwwfHx8fDE3Njk4NDg3OTF8MA&ixlib=rb-4.1.0&q=85",
+        "alt": "Abstract minimalist data visualization background",
+        "usage": "Hero section background, subtle overlay"
+      },
+      "team_collaboration": {
+        "url": "https://images.unsplash.com/photo-1758876202980-0a28b744fb24?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjBkYXRhJTIwYW5hbHl0aWNzJTIwdGVhbXxlbnwwfHx8fDE3Njk4NDg3ODZ8MA&ixlib=rb-4.1.0&q=85",
+        "alt": "Team analyzing data on laptop",
+        "usage": "About section, Features section"
+      }
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-width={1.5} className='w-5 h-5'"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use 'Outfit' font for all headings (h1-h4) and 'Inter' for body text. Import them via Google Fonts in index.css.",
+    "Implement a 'Bento Grid' layout for the dashboard: Mix large summary cards (col-span-2) with smaller metric cards (col-span-1).",
+    "Use the specified color palette. Do NOT use default Tailwind colors directly; use the semantic names (primary, secondary, muted).",
+    "Ensure all interactive elements have hover states and focus rings for accessibility.",
+    "Use 'Recharts' for data visualization. Style the charts to match the theme (clean lines, no grid lines if possible, custom tooltips).",
+    "For the 'Data Upload' section, create a large, dashed-border drop zone that highlights on drag-over.",
+    "Keep the design 'Airy'. Use generous padding (p-6 or p-8) inside cards.",
+    "Do NOT use dark mode by default. The app is strictly Light Mode as per requirements.",
+    "Add 'data-testid' to all interactive elements (buttons, inputs, links) for testing.",
+    "Use 'sonner' for toast notifications.",
+    "For the sidebar, use a clean, vertical list with subtle hover effects (bg-slate-100).",
+    "Ensure the 'Data Cleaning' interface is intuitive: Use a table view with inline editing or clear action buttons for each column."
+  ],
+  "universal_guidelines": [
+    "Avoid 'AI slop' aesthetic: No generic centered layouts, no rainbow gradients.",
+    "Create depth through layered design elements (z-index, shadows).",
+    "Use glass-morphism effects sparingly (e.g., sticky headers).",
+    "Do NOT apply 'transition: all'. Animate specific properties (transform, opacity, colors).",
+    "Do NOT center align the app container globally.",
+    "Use modern button styles (pill or rounded-lg).",
+    "NEVER use AI assistant emojis (🤖, 🧠, etc.) as icons.",
+    "Every interaction needs micro-animations (hover, active, focus).",
+    "Use 2-3x more spacing than typical designs.",
+    "Prioritize using pre-existing Shadcn components from /components/ui.",
+    "Components MUST use named exports.",
+    "Pages MUST use default exports."
+  ]
+}
