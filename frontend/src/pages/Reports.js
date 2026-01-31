@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FileDown, Trash2, Calendar } from 'lucide-react';
+import { FileDown, Trash2, Calendar, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
