@@ -27,7 +27,9 @@ export default function Analytics() {
   const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
   const [datasetData, setDatasetData] = useState(null);
   const [statistics, setStatistics] = useState(null);
+  const [autoCharts, setAutoCharts] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showAutoCharts, setShowAutoCharts] = useState(true);
   
   // Chart customization state
   const [selectedChartType, setSelectedChartType] = useState('bar');
