@@ -38,9 +38,11 @@ export default function DataUpload() {
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
+    
+    const title = datasetTitle || file.name.split('.')[0];
 
     try {
-      const response = await axios.post(`${API}/datasets/upload`, formData, {
+      const response = await axios.post(`${API}/datasets/upload?title=${encodeURIComponent(title)}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       
