@@ -45,96 +45,49 @@ Build a comprehensive web application for data analytics with:
 
 ### Phase 3: AI-Powered Analytics ✅
 - [x] AI Data Analysis (`/api/ai/analyze-data`)
-  - Data quality assessment
-  - Statistical summary
-  - Correlation detection
-  - Trend identification
-  - AI-generated comprehensive insights
 - [x] Prescriptive Analytics (`/api/ai/prescriptive`)
-  - Risk factor identification
-  - Optimization opportunities
-  - AI strategic recommendations
-  - Priority action items with owners/timelines
 - [x] AI Chart Descriptions (`/api/ai/describe-chart`)
-- [x] ML Prediction Model (`/api/ml/predict`)
-  - Random Forest Regressor
-  - Feature importance ranking
-  - R² score and MAE metrics
-- [x] ML Clustering (`/api/ml/cluster`)
-  - K-Means segmentation
-  - Cluster statistics
-  - AI-generated segment insights
+- [x] ML Prediction Model (`/api/ml/predict`) - Random Forest Regressor
+- [x] ML Clustering (`/api/ml/cluster`) - K-Means segmentation
 
 ### Phase 4: Security & Governance ✅
 - [x] JWT-based authentication
 - [x] User registration with role selection
 - [x] Email/password login
 - [x] Hierarchical RBAC (Admin > Manager > Analyst > Viewer)
-- [x] Role-based permissions
-  - Admin: all permissions
-  - Manager: read, write, delete, view_audit, export
-  - Analyst: read, write, export
-  - Viewer: read only
 - [x] User management (admin-only)
-  - Role updates
-  - Enable/disable users
-- [x] Audit logging
-  - Track all user actions
-  - Filterable log viewer
+- [x] Audit logging with filterable viewer
 - [x] Data masking for sensitive columns
 
 ### Phase 5: Reports & PDF Generation ✅
-- [x] Comprehensive PDF reports with:
-  - Cover page with dataset metadata
-  - AI-generated executive summary
-  - KPI cards with benchmarks
-  - ML-powered anomaly detection
-  - Clustering analysis
-  - Predictive forecasting with charts
-  - AI prescriptive recommendations
-  - Priority action items table
+**Report Structure (Original + AI Appended):**
+1. Executive Summary
+2. Key Performance Indicators (KPIs)
+3. Detailed Descriptive Statistics
+4. Data Visualizations & Insights (Trend Analysis, Distribution)
+5. Anomaly Detection
+6. Strategic Recommendations
+7. **NEW:** AI-Powered Insights (appended)
+8. **NEW:** ML-Powered Analytics (appended)
+9. **NEW:** Prescriptive Analytics (appended)
 
 ---
 
-## API Endpoints
+## UI Bug Fixes Applied
+- [x] Analytics page loading state - now shows "Loading statistics..." spinner instead of blank page
+- [x] PDF report structure restored - original sections preserved, AI/ML sections appended
 
-### Authentication
-- `POST /api/auth/register` - Create new user
-- `POST /api/auth/login` - Login with JWT
-- `GET /api/auth/me` - Get current user
-- `GET /api/auth/users` - List users (admin/manager)
-- `PUT /api/auth/users/{id}/role` - Update role (admin)
-- `PUT /api/auth/users/{id}/status` - Toggle status (admin)
+---
 
-### Datasets
-- `POST /api/datasets/upload` - Upload file
-- `POST /api/datasets/upload-from-api` - API ingestion
-- `POST /api/datasets/upload-from-mysql` - MySQL ingestion
-- `GET /api/datasets` - List datasets
-- `GET /api/datasets/{id}` - Get dataset with data
-- `PUT /api/datasets/{id}/title` - Update title
-- `DELETE /api/datasets/{id}` - Delete dataset
-- `POST /api/datasets/{id}/clean` - Apply cleaning
+## Test Credentials
+- Admin: `admin@test.com` / `admin123`
 
-### Analytics
-- `POST /api/analytics/descriptive` - Statistics
-- `POST /api/analytics/time-series` - Time series
-- `POST /api/analytics/trends` - Trend detection
-- `POST /api/analytics/anomalies` - Anomaly detection
-- `POST /api/analytics/forecast` - Forecasting
-- `GET /api/datasets/{id}/auto-charts` - Auto charts
-
-### AI & ML
-- `POST /api/ai/analyze-data` - AI data analysis
-- `POST /api/ai/prescriptive` - Prescriptive analytics
-- `POST /api/ai/describe-chart` - Chart description
-- `POST /api/ml/predict` - ML prediction
-- `POST /api/ml/cluster` - ML clustering
-
-### Reports & Audit
-- `GET /api/reports/{id}/pdf` - Generate PDF
-- `GET /api/audit/logs` - View audit logs
-- `PUT /api/datasets/{id}/sensitive-columns` - Data masking
+## Key Files
+- Backend: `/app/backend/server.py`
+- Auth Context: `/app/frontend/src/context/AuthContext.js`
+- AI Insights: `/app/frontend/src/pages/AIInsights.js`
+- Analytics: `/app/frontend/src/pages/Analytics.js`
+- Layout: `/app/frontend/src/components/Layout.js`
 
 ---
 
@@ -160,17 +113,6 @@ Build a comprehensive web application for data analytics with:
 - [ ] In-app comments/annotations
 - [ ] Plugin system
 - [ ] Dark mode toggle
-
----
-
-## Test Credentials
-- Admin: `admin@test.com` / `admin123`
-
-## Key Files
-- Backend: `/app/backend/server.py`
-- Auth Context: `/app/frontend/src/context/AuthContext.js`
-- AI Insights: `/app/frontend/src/pages/AIInsights.js`
-- Layout: `/app/frontend/src/components/Layout.js`
 
 ---
 
