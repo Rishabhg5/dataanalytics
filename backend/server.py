@@ -1693,7 +1693,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
 
 @api_router.get("/reports/{dataset_id}/pdf")
 async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_user)):
-    """Generate comprehensive PDF report with AI-powered insights"""
+    """Generate comprehensive PDF report with original structure + AI-powered insights appended"""
     try:
         # Fetch dataset
         dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
@@ -1753,11 +1753,25 @@ async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_
             leading=16
         )
         
+        # Calculate metrics
+        total_rows = len(df)
+        missing_pct = (df.isnull().sum().sum() / (total_rows * len(df.columns))) * 100
+        
+        # Trend analysis for summary
+        trend_direction = "stable"
+        trend_strength = "N/A"
+        if len(numeric_cols) > 0:
+            primary_col = numeric_cols[0]
+            values = df[primary_col].dropna().values[:100]
+            if len(values) > 1:
+                x = np.arange(len(values))
+                slope, _, r_value, _, _ = stats.linregress(x, values)
+                trend_direction = "upward" if slope > 0 else "downward"
+                trend_strength = "strong" if abs(r_value) > 0.7 else "moderate" if abs(r_value) > 0.3 else "weak"
+        
         # ============ COVER PAGE ============
         story.append(Spacer(1, 1.5*inch))
         story.append(Paragraph("DATA ANALYTICS REPORT", title_style))
-        story.append(Paragraph("<i>AI-Powered Insights & Prescriptive Analytics</i>", 
-            ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=14, textColor=colors.grey, alignment=TA_CENTER)))
         story.append(Spacer(1, 0.3*inch))
         
         cover_info = [
@@ -1778,91 +1792,187 @@ async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_
         story.append(cover_table)
         story.append(Spacer(1, 0.5*inch))
         
-        watermark = Paragraph("<i>E1 Analytics - AI-Powered Data Intelligence Platform</i>", 
+        watermark = Paragraph("<i>E1 Analytics - Data Intelligence Platform</i>", 
             ParagraphStyle('Watermark', parent=styles['Normal'], fontSize=10, textColor=colors.grey, alignment=TA_CENTER))
         story.append(watermark)
         story.append(PageBreak())
         
-        # ============ EXECUTIVE SUMMARY WITH AI ============
+        # ============ 1. EXECUTIVE SUMMARY (ORIGINAL) ============
         story.append(Paragraph("1. EXECUTIVE SUMMARY", heading_style))
-        story.append(Paragraph("AI-Generated Overview", subheading_style))
-        
-        # Calculate metrics
-        total_rows = len(df)
-        missing_pct = (df.isnull().sum().sum() / (total_rows * len(df.columns))) * 100
-        
-        # Generate AI executive summary
-        ai_summary_prompt = f"""Generate an executive summary for this data analysis report:
-
-Dataset: {dataset.get('title', dataset['name'])}
-Total Records: {total_rows}
-Columns: {dataset['columns']}
-Missing Data: {missing_pct:.1f}%
-Numeric Columns: {len(numeric_cols)}
-
-Provide 3-4 key bullet points summarizing the data quality, notable patterns, and business implications."""
-
-        ai_exec_summary = await generate_ai_insight(ai_summary_prompt)
+        story.append(Paragraph("Actionable Overview", subheading_style))
         
         exec_summary = f"""
-        <b>Dataset Overview:</b><br/>
-        This comprehensive analysis examines {total_rows:,} records across {len(df.columns)} dimensions 
-        from the dataset "{dataset.get('title', dataset['name'])}".
+        This comprehensive analysis examines {total_rows:,} records across {len(df.columns)} dimensions. 
+        The dataset represents {dataset.get('title', dataset['name'])} and has been processed to extract actionable insights.
         
-        <b>AI-Generated Insights:</b><br/>
-        {ai_exec_summary}
+        <b>Key Findings:</b><br/>
+        • Data Quality: {100-missing_pct:.1f}% complete with {missing_pct:.1f}% missing values requiring attention<br/>
+        • Primary Trend: {trend_strength.capitalize()} {trend_direction} trend detected in key metrics<br/>
+        • Business Impact: The data reveals {'growth opportunities' if trend_direction == 'upward' else 'areas requiring optimization'}<br/>
+        • Confidence Level: {'High' if missing_pct < 5 else 'Moderate' if missing_pct < 15 else 'Requires data quality improvement'}<br/>
         
-        <b>Data Quality Score:</b> {100-missing_pct:.1f}% complete
+        <b>Strategic Implications:</b><br/>
+        {'The positive trends indicate momentum that should be sustained through continued investment and monitoring.' if trend_direction == 'upward' else 'The current patterns suggest opportunities for strategic interventions to reverse declining metrics.' if trend_direction == 'downward' else 'Stable patterns provide a foundation for testing new initiatives.'}
         """
         
         story.append(Paragraph(exec_summary, body_style))
         story.append(Spacer(1, 0.3*inch))
         
-        # ============ KEY PERFORMANCE INDICATORS ============
+        # ============ 2. KEY PERFORMANCE INDICATORS (ORIGINAL) ============
         story.append(Paragraph("2. KEY PERFORMANCE INDICATORS (KPIs)", heading_style))
         
-        kpi_data = [['KPI', 'Current Value', 'Benchmark', 'Status', 'AI Recommendation']]
+        kpi_data = [['KPI', 'Current Value', 'Benchmark', 'Status', 'Insight']]
         
         if len(numeric_cols) > 0:
             for col in numeric_cols[:4]:
                 mean_val = df[col].mean()
                 median_val = df[col].median()
                 benchmark = median_val
-                variance = ((mean_val - benchmark) / benchmark * 100) if benchmark != 0 else 0
-                status = "✓ Above" if mean_val > benchmark else "✗ Below"
-                
-                # Quick AI recommendation
-                rec = "Monitor" if abs(variance) < 10 else ("Optimize" if variance < 0 else "Leverage")
+                status = "✓ Above" if mean_val > benchmark else "✗ Below" if mean_val < benchmark else "= On Target"
+                insight = f"{'Strong performance' if mean_val > benchmark else 'Needs improvement'}"
                 
                 kpi_data.append([
-                    col[:15],
+                    col[:20],
                     f"{mean_val:.2f}",
                     f"{benchmark:.2f}",
                     status,
-                    rec
+                    insight
                 ])
         
-        kpi_table = Table(kpi_data, colWidths=[1.3*inch, 1.1*inch, 1.1*inch, 0.9*inch, 1.2*inch])
+        # Add data quality KPI
+        completeness = 100 - missing_pct
+        kpi_data.append([
+            'Data Completeness',
+            f"{completeness:.1f}%",
+            '95%',
+            "✓ Above" if completeness >= 95 else "✗ Below",
+            "Good" if completeness >= 95 else "Needs cleaning"
+        ])
+        
+        kpi_table = Table(kpi_data, colWidths=[1.5*inch, 1.2*inch, 1.2*inch, 1*inch, 1.6*inch])
         kpi_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
         ]))
         story.append(kpi_table)
         story.append(Spacer(1, 0.3*inch))
         
-        # ============ ML-POWERED ANALYTICS ============
-        story.append(Paragraph("3. ML-POWERED ANALYTICS", heading_style))
+        # ============ 3. DETAILED DESCRIPTIVE STATISTICS (ORIGINAL) ============
+        story.append(Paragraph("3. DETAILED DESCRIPTIVE STATISTICS", heading_style))
         
-        # Anomaly Detection
-        story.append(Paragraph("3.1 Anomaly Detection (Isolation Forest)", subheading_style))
+        if numeric_cols:
+            stats_data = [['Metric', 'Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Q1', 'Q3']]
+            for col in numeric_cols[:5]:
+                stats_data.append([
+                    col[:15],
+                    f"{df[col].mean():.2f}",
+                    f"{df[col].median():.2f}",
+                    f"{df[col].std():.2f}",
+                    f"{df[col].min():.2f}",
+                    f"{df[col].max():.2f}",
+                    f"{df[col].quantile(0.25):.2f}",
+                    f"{df[col].quantile(0.75):.2f}"
+                ])
+            
+            stats_table = Table(stats_data, colWidths=[1.3*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch])
+            stats_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10B981')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('FONTSIZE', (0, 1), (-1, -1), 8)
+            ]))
+            story.append(stats_table)
+        
+        story.append(PageBreak())
+        
+        # ============ 4. DATA VISUALIZATIONS & INSIGHTS (ORIGINAL) ============
+        story.append(Paragraph("4. DATA VISUALIZATIONS & INSIGHTS", heading_style))
+        
+        # Visualization 1: Trend Analysis
+        if len(numeric_cols) > 0:
+            story.append(Paragraph("4.1 Trend Analysis", subheading_style))
+            
+            col = numeric_cols[0]
+            values = df[col].dropna().values[:100]
+            if len(values) > 1:
+                x = np.arange(len(values))
+                slope, intercept, r_value, p_value, std_err = stats.linregress(x, values)
+                
+                trend_insight = f"""
+                <b>Key Findings:</b><br/>
+                • Trend Direction: {('Upward' if slope > 0 else 'Downward')} ({slope:.4f} per unit)<br/>
+                • Strength: R² = {r_value**2:.3f} ({'Strong' if abs(r_value) > 0.7 else 'Moderate' if abs(r_value) > 0.3 else 'Weak'} correlation)<br/>
+                • Statistical Significance: p-value = {p_value:.4f}<br/>
+                • Business Interpretation: {'Consistent growth pattern suggests positive momentum' if slope > 0 else 'Declining trend requires strategic intervention'}<br/>
+                """
+                story.append(Paragraph(trend_insight, body_style))
+                
+                try:
+                    fig, ax = plt.subplots(figsize=(7, 4))
+                    ax.plot(x, values, 'o-', label='Actual Data', color='#4F46E5', linewidth=2, markersize=4)
+                    ax.plot(x, slope * x + intercept, '--', label='Trend Line', color='#10B981', linewidth=2)
+                    ax.fill_between(x, values, alpha=0.3, color='#4F46E5')
+                    ax.set_xlabel('Time Period', fontsize=10)
+                    ax.set_ylabel(col, fontsize=10)
+                    ax.set_title(f'Trend Analysis: {col}', fontsize=12, fontweight='bold')
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    chart_path = f"/tmp/trend_{dataset_id}.png"
+                    plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+                    plt.close()
+                    
+                    img = Image(chart_path, width=6*inch, height=3.5*inch)
+                    story.append(img)
+                except Exception as e:
+                    logger.error(f"Trend chart error: {e}")
+        
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Distribution Analysis
+        if len(numeric_cols) >= 2:
+            story.append(Paragraph("4.2 Distribution Analysis", subheading_style))
+            
+            try:
+                col1, col2 = numeric_cols[0], numeric_cols[1]
+                fig, axes = plt.subplots(1, 2, figsize=(7, 3))
+                
+                axes[0].hist(df[col1].dropna(), bins=20, color='#4F46E5', alpha=0.7, edgecolor='white')
+                axes[0].set_title(f'{col1[:15]} Distribution', fontsize=10)
+                axes[0].set_xlabel(col1[:15], fontsize=8)
+                axes[0].set_ylabel('Frequency', fontsize=8)
+                
+                axes[1].hist(df[col2].dropna(), bins=20, color='#10B981', alpha=0.7, edgecolor='white')
+                axes[1].set_title(f'{col2[:15]} Distribution', fontsize=10)
+                axes[1].set_xlabel(col2[:15], fontsize=8)
+                axes[1].set_ylabel('Frequency', fontsize=8)
+                
+                plt.tight_layout()
+                dist_path = f"/tmp/dist_{dataset_id}.png"
+                plt.savefig(dist_path, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+                img = Image(dist_path, width=6*inch, height=2.5*inch)
+                story.append(img)
+            except Exception as e:
+                logger.error(f"Distribution chart error: {e}")
+        
+        story.append(PageBreak())
+        
+        # ============ 5. ANOMALY DETECTION (ORIGINAL) ============
+        story.append(Paragraph("5. ANOMALY DETECTION", heading_style))
         
         if len(numeric_cols) > 0:
             try:
@@ -1874,7 +1984,7 @@ Provide 3-4 key bullet points summarizing the data quality, notable patterns, an
                     anomaly_pct = anomaly_count / len(X) * 100
                     
                     anomaly_text = f"""
-                    <b>Results:</b><br/>
+                    <b>Isolation Forest Results:</b><br/>
                     • Total Records Analyzed: {len(X):,}<br/>
                     • Anomalies Detected: {anomaly_count} ({anomaly_pct:.1f}%)<br/>
                     • Risk Level: {"HIGH" if anomaly_pct > 15 else "MEDIUM" if anomaly_pct > 5 else "LOW"}<br/>
@@ -1885,12 +1995,61 @@ Provide 3-4 key bullet points summarizing the data quality, notable patterns, an
                     story.append(Paragraph("Insufficient data for anomaly detection (minimum 10 records required).", body_style))
             except Exception as e:
                 logger.error(f"Anomaly detection error: {e}")
-                story.append(Paragraph(f"Anomaly detection unavailable: {str(e)[:100]}", body_style))
+                story.append(Paragraph("Anomaly detection unavailable.", body_style))
         
+        story.append(Spacer(1, 0.3*inch))
+        
+        # ============ 6. STRATEGIC RECOMMENDATIONS (ORIGINAL) ============
+        story.append(Paragraph("6. STRATEGIC RECOMMENDATIONS", heading_style))
+        
+        recommendations = f"""
+        Based on the analysis, here are the key strategic recommendations:<br/><br/>
+        
+        <b>1. Data Quality Improvement:</b><br/>
+        {'Address the ' + str(missing_pct) + '% missing data through systematic data collection and validation processes.' if missing_pct > 5 else 'Maintain current data quality standards through regular audits.'}
+        <br/><br/>
+        
+        <b>2. Trend Optimization:</b><br/>
+        {'Capitalize on the positive growth trajectory by increasing investment in key performing areas.' if trend_direction == 'upward' else 'Investigate root causes of declining metrics and implement corrective measures.' if trend_direction == 'downward' else 'Use stable baseline to test new optimization strategies.'}
+        <br/><br/>
+        
+        <b>3. Monitoring & Governance:</b><br/>
+        Implement continuous monitoring dashboards to track KPIs in real-time and enable proactive decision-making.
+        """
+        
+        story.append(Paragraph(recommendations, body_style))
+        
+        story.append(PageBreak())
+        
+        # ============ 7. AI-POWERED INSIGHTS (NEW - APPENDED) ============
+        story.append(Paragraph("7. AI-POWERED INSIGHTS", heading_style))
+        story.append(Paragraph("<i>Advanced analytics powered by artificial intelligence</i>", 
+            ParagraphStyle('AINote', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#6366F1'))))
         story.append(Spacer(1, 0.2*inch))
         
+        # Generate AI executive summary
+        ai_summary_prompt = f"""Generate an executive summary for this data analysis:
+
+Dataset: {dataset.get('title', dataset['name'])}
+Total Records: {total_rows}
+Columns: {dataset['columns']}
+Missing Data: {missing_pct:.1f}%
+Numeric Columns: {len(numeric_cols)}
+Trend: {trend_direction} ({trend_strength})
+
+Provide 3-4 key bullet points with business insights and implications."""
+
+        ai_exec_summary = await generate_ai_insight(ai_summary_prompt)
+        
+        story.append(Paragraph("7.1 AI-Generated Executive Insight", subheading_style))
+        story.append(Paragraph(ai_exec_summary.replace('\n', '<br/>'), body_style))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # ============ 8. ML-POWERED ANALYTICS (NEW - APPENDED) ============
+        story.append(Paragraph("8. ML-POWERED ANALYTICS", heading_style))
+        
         # Clustering Analysis
-        story.append(Paragraph("3.2 Data Segmentation (K-Means Clustering)", subheading_style))
+        story.append(Paragraph("8.1 Data Segmentation (K-Means Clustering)", subheading_style))
         
         if len(numeric_cols) >= 2:
             try:
@@ -1915,10 +2074,10 @@ Provide 3-4 key bullet points summarizing the data quality, notable patterns, an
                 logger.error(f"Clustering error: {e}")
                 story.append(Paragraph("Clustering analysis unavailable.", body_style))
         
-        story.append(PageBreak())
+        story.append(Spacer(1, 0.2*inch))
         
-        # ============ PREDICTIVE FORECASTING ============
-        story.append(Paragraph("4. PREDICTIVE FORECASTING", heading_style))
+        # Predictive Forecasting
+        story.append(Paragraph("8.2 Predictive Forecasting", subheading_style))
         
         if len(numeric_cols) > 0:
             col = numeric_cols[0]
@@ -1969,19 +2128,19 @@ Provide 3-4 key bullet points summarizing the data quality, notable patterns, an
             else:
                 story.append(Paragraph("Insufficient data for forecasting (minimum 10 data points required).", body_style))
         
-        story.append(Spacer(1, 0.3*inch))
+        story.append(PageBreak())
         
-        # ============ AI-POWERED PRESCRIPTIVE ANALYTICS ============
-        story.append(Paragraph("5. PRESCRIPTIVE ANALYTICS", heading_style))
+        # ============ 9. PRESCRIPTIVE ANALYTICS (NEW - APPENDED) ============
+        story.append(Paragraph("9. PRESCRIPTIVE ANALYTICS", heading_style))
         story.append(Paragraph("AI-Generated Strategic Recommendations", subheading_style))
         
-        # Generate comprehensive prescriptive analysis
         prescriptive_prompt = f"""Based on this data analysis, provide 5 specific prescriptive recommendations:
 
 Dataset: {dataset.get('title', dataset['name'])}
 Records: {total_rows}
 Data Quality: {100-missing_pct:.1f}% complete
 Key Metrics: {numeric_cols[:5]}
+Trend: {trend_direction}
 
 Provide actionable recommendations in format:
 1. [Category]: [Specific Action] - [Expected Outcome]"""
@@ -1993,7 +2152,7 @@ Provide actionable recommendations in format:
         story.append(Spacer(1, 0.3*inch))
         
         # Action Items Table
-        story.append(Paragraph("5.1 Priority Action Items", subheading_style))
+        story.append(Paragraph("9.1 Priority Action Items", subheading_style))
         
         action_data = [
             ['Priority', 'Action Item', 'Owner', 'Timeline', 'Expected Impact'],
