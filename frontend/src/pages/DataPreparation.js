@@ -9,8 +9,9 @@ const API = `${BACKEND_URL}/api`;
 
 export default function DataPreparation() {
   const [searchParams] = useSearchParams();
+  const { datasetId } = useParams();
   const navigate = useNavigate();
-  const datasetId = searchParams.get('dataset');
+  const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
