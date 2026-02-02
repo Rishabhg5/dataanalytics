@@ -280,13 +280,52 @@ async def upload_from_mysql(
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/datasets", response_model=List[Dataset])
-async def get_datasets():
-    """Get all datasets"""
-    datasets = await db.datasets.find({}, {"_id": 0}).to_list(1000)
+async def get_datasets(search: Optional[str] = None):
+    """Get all datasets with optional search"""
+    query = {}
+    if search:
+        query = {"$or": [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}}
+        ]}
+    
+    datasets = await db.datasets.find(query, {"_id": 0}).to_list(1000)
     for ds in datasets:
         if isinstance(ds['uploaded_at'], str):
             ds['uploaded_at'] = datetime.fromisoformat(ds['uploaded_at'])
     return datasets
+
+@api_router.put("/datasets/{dataset_id}/title")
+async def update_dataset_title(dataset_id: str, title: str):
+    """Update dataset title"""
+    result = await db.datasets.update_one(
+        {"id": dataset_id},
+        {"$set": {"title": title}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"success": True}
+
+@api_router.post("/datasets/{dataset_id}/overview")
+async def save_dataset_overview(dataset_id: str, overview: DatasetOverview):
+    """Save dataset overview with all analysis"""
+    doc = overview.model_dump()
+    doc['last_updated'] = doc['last_updated'].isoformat()
+    
+    await db.dataset_overviews.update_one(
+        {"dataset_id": dataset_id},
+        {"$set": doc},
+        upsert=True
+    )
+    return {"success": True}
+
+@api_router.get("/datasets/{dataset_id}/overview")
+async def get_dataset_overview(dataset_id: str):
+    """Get stored dataset overview"""
+    overview = await db.dataset_overviews.find_one({"dataset_id": dataset_id}, {"_id": 0})
+    if not overview:
+        return None
+    return overview
 
 @api_router.get("/datasets/{dataset_id}")
 async def get_dataset(dataset_id: str, limit: int = Query(100, ge=1, le=10000)):
