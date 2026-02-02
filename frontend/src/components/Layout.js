@@ -44,7 +44,7 @@ export default function Layout() {
       <aside
         className={`${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 transition-transform duration-200 lg:translate-x-0 lg:static flex flex-col`}
+        } fixed inset-y-0 left-0 z-50 w-80 bg-white border-r border-slate-200 transition-transform duration-200 lg:translate-x-0 lg:static flex flex-col`}
       >
         <div className="p-6 border-b border-slate-200">
           <Link to="/" className="block">
