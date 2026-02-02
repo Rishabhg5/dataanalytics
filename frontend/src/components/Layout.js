@@ -15,6 +15,11 @@ export default function Layout() {
 
   useEffect(() => {
     fetchDatasets();
+    // Poll for updates every 3 seconds
+    const interval = setInterval(() => {
+      fetchDatasets(searchQuery);
+    }, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchDatasets = async (search = '') => {
