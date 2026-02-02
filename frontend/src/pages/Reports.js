@@ -155,7 +155,9 @@ export default function Reports() {
           Reports & Export
         </h1>
         <p className="text-lg text-slate-600 leading-relaxed">
-          Generate comprehensive PDF reports and export data for all your datasets.
+          {datasetId 
+            ? `Generate comprehensive PDF report and export data for ${datasets[0]?.title || 'this dataset'}.`
+            : 'Generate comprehensive PDF reports and export data for all your datasets.'}
         </p>
       </div>
 
