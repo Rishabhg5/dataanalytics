@@ -68,12 +68,57 @@ export default function Layout() {
           <Link
             to="/upload"
             data-testid="nav-upload"
-            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg ${
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
               location.pathname === '/upload' ? 'active' : 'text-slate-700'
             }`}
           >
             <Upload className="w-5 h-5" strokeWidth={1.5} />
             <span className="font-medium">Upload Data</span>
+          </Link>
+        </nav>
+
+        {/* Analysis Navigation */}
+        <nav className="p-4 border-b border-slate-200">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-4">Analysis</p>
+          <Link
+            to="/preparation"
+            data-testid="nav-data-prep"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
+              location.pathname === '/preparation' || location.pathname.includes('/preparation') ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <Wrench className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Data Prep</span>
+          </Link>
+          <Link
+            to="/analytics"
+            data-testid="nav-analytics"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
+              location.pathname === '/analytics' || location.pathname.includes('/analytics') ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Analytics</span>
+          </Link>
+          <Link
+            to="/insights"
+            data-testid="nav-insights"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
+              location.pathname === '/insights' || location.pathname.includes('/insights') ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <Lightbulb className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Insights</span>
+          </Link>
+          <Link
+            to="/reports"
+            data-testid="nav-reports"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
+              location.pathname === '/reports' || location.pathname.includes('/reports') ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <FileText className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Reports</span>
           </Link>
         </nav>
 
