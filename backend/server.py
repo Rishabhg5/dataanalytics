@@ -110,7 +110,7 @@ async def root():
     return {"message": "E1 Analytics API"}
 
 @api_router.post("/datasets/upload")
-async def upload_dataset(file: UploadFile = File(...)):
+async def upload_dataset(file: UploadFile = File(...), title: str = None):
     """Upload CSV, Excel, JSON, or Text file"""
     try:
         contents = await file.read()
@@ -156,6 +156,7 @@ async def upload_dataset(file: UploadFile = File(...)):
         dataset = Dataset(
             id=dataset_id,
             name=file.filename,
+            title=title or file.filename.split('.')[0],
             filename=file.filename,
             rows=len(df),
             columns=len(df.columns),
