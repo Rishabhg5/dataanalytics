@@ -361,13 +361,22 @@ export default function Insights() {
         </div>
       )}
 
-      {/* Next Step Button */}
+      {/* Next Step Buttons */}
       {selectedColumn && (
-        <div className="flex justify-end mt-6">
+        <div className="flex flex-col md:flex-row gap-4 justify-end mt-6">
+          <Link
+            to={`/ai-insights?dataset=${selectedDataset}`}
+            data-testid="proceed-to-ai-insights-btn"
+            className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+          >
+            <Brain className="w-5 h-5" />
+            AI-Powered Analysis
+            <Sparkles className="w-4 h-4" />
+          </Link>
           <button
             data-testid="proceed-to-reports-btn"
             onClick={handleProceedToReports}
-            className="flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
           >
             Proceed to Reports
             <ChevronRight className="w-5 h-5" />
