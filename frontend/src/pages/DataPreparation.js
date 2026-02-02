@@ -14,7 +14,7 @@ export default function DataPreparation() {
   const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
-  const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
+  const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');
   const [datasetData, setDatasetData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
