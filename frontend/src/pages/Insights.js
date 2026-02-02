@@ -10,8 +10,9 @@ const API = `${BACKEND_URL}/api`;
 
 export default function Insights() {
   const [searchParams] = useSearchParams();
+  const { datasetId } = useParams();
   const navigate = useNavigate();
-  const datasetIdParam = searchParams.get('dataset');
+  const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');
