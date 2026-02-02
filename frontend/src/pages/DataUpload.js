@@ -230,7 +230,6 @@ export default function DataUpload() {
               </div>
             </div>
           )}
-
           {/* API Import Mode */}
           {uploadMode === 'api' && (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8">
