@@ -93,6 +93,21 @@ export default function DataPreparation() {
     }
   };
 
+  // Pagination logic
+  const totalPages = datasetData ? Math.ceil(datasetData.data.length / rowsPerPage) : 0;
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const currentData = datasetData ? datasetData.data.slice(startIndex, endIndex) : [];
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleRowsPerPageChange = (e) => {
+    setRowsPerPage(parseInt(e.target.value));
+    setCurrentPage(1);
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Progress Indicator */}
