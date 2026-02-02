@@ -16,6 +16,9 @@ export default function DataPreparation() {
   const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
   const [datasetData, setDatasetData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [showFullData, setShowFullData] = useState(false);
 
   useEffect(() => {
     fetchDatasets();
