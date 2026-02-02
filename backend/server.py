@@ -1,20 +1,23 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query, Depends, Header
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Dict, Any, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 import numpy as np
 import io
-from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import IsolationForest, RandomForestRegressor, GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.cluster import KMeans
+from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from scipy import stats
 import json
@@ -27,20 +30,81 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from passlib.context import CryptContext
+import jwt
+import hashlib
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Configure logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# JWT Configuration
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'e1-analytics-secret-key')
+JWT_ALGORITHM = os.environ.get('JWT_ALGORITHM', 'HS256')
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Security
+security = HTTPBearer(auto_error=False)
+
 # Create the main app
-app = FastAPI()
+app = FastAPI(title="E1 Analytics API", version="2.0.0")
 api_router = APIRouter(prefix="/api")
 
-# Models
+# ===================== MODELS =====================
+
+# Role hierarchy: admin > manager > analyst > viewer
+ROLE_HIERARCHY = {
+    "admin": 4,
+    "manager": 3,
+    "analyst": 2,
+    "viewer": 1
+}
+
+ROLE_PERMISSIONS = {
+    "admin": ["read", "write", "delete", "manage_users", "view_audit", "mask_data", "export"],
+    "manager": ["read", "write", "delete", "view_audit", "export"],
+    "analyst": ["read", "write", "export"],
+    "viewer": ["read"]
+}
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: str = "viewer"
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+    created_at: datetime
+    is_active: bool
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
 class Dataset(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -52,6 +116,9 @@ class Dataset(BaseModel):
     column_names: List[str]
     column_types: Dict[str, str]
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    owner_id: Optional[str] = None
+    access_level: str = "public"  # public, private, restricted
+    sensitive_columns: List[str] = []
     
 class DatasetOverview(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -91,7 +158,30 @@ class Dashboard(BaseModel):
     charts: List[Dict[str, Any]]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-# Helper functions
+class AuditLog(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    action: str
+    resource_type: str
+    resource_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AIInsightRequest(BaseModel):
+    dataset_id: str
+    insight_type: str  # chart_description, data_analysis, prescriptive
+    context: Optional[Dict[str, Any]] = None
+
+class PrescriptiveRequest(BaseModel):
+    dataset_id: str
+    business_context: Optional[str] = None
+    optimization_goals: Optional[List[str]] = None
+
+# ===================== HELPER FUNCTIONS =====================
+
 def serialize_for_json(obj):
     """Convert numpy/pandas types to JSON serializable types"""
     if isinstance(obj, (np.integer, np.floating)):
@@ -104,13 +194,772 @@ def serialize_for_json(obj):
         return obj.isoformat()
     return obj
 
-# Routes
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get current user from JWT token - returns None if no auth provided"""
+    if not credentials:
+        return None
+    try:
+        payload = decode_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if not user or not user.get("is_active", True):
+            return None
+        return user
+    except:
+        return None
+
+async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Require authentication - raises error if not authenticated"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user = await get_current_user(credentials)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid authentication")
+    return user
+
+def check_permission(user: dict, required_permission: str) -> bool:
+    """Check if user has required permission based on role"""
+    if not user:
+        return False
+    role = user.get("role", "viewer")
+    permissions = ROLE_PERMISSIONS.get(role, [])
+    return required_permission in permissions
+
+def has_higher_role(user_role: str, target_role: str) -> bool:
+    """Check if user role is higher than target role"""
+    return ROLE_HIERARCHY.get(user_role, 0) > ROLE_HIERARCHY.get(target_role, 0)
+
+async def log_audit(user_id: str, user_email: str, action: str, resource_type: str, 
+                   resource_id: str = None, details: dict = None, ip_address: str = None):
+    """Log audit entry"""
+    audit = AuditLog(
+        user_id=user_id,
+        user_email=user_email,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        details=details,
+        ip_address=ip_address
+    )
+    doc = audit.model_dump()
+    doc['timestamp'] = doc['timestamp'].isoformat()
+    await db.audit_logs.insert_one(doc)
+
+def mask_sensitive_data(data: List[dict], sensitive_columns: List[str], user_role: str) -> List[dict]:
+    """Mask sensitive data based on user role"""
+    if user_role == "admin":
+        return data  # Admins see everything
+    
+    masked_data = []
+    for row in data:
+        masked_row = row.copy()
+        for col in sensitive_columns:
+            if col in masked_row:
+                value = str(masked_row[col]) if masked_row[col] else ""
+                if len(value) > 4:
+                    masked_row[col] = value[:2] + "*" * (len(value) - 4) + value[-2:]
+                else:
+                    masked_row[col] = "****"
+        masked_data.append(masked_row)
+    return masked_data
+
+# ===================== AI INTEGRATION =====================
+
+async def generate_ai_insight(prompt: str, context: str = "") -> str:
+    """Generate AI-powered insight using OpenAI via emergentintegrations"""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
+        if not api_key:
+            logger.warning("EMERGENT_LLM_KEY not found, using fallback insights")
+            return generate_fallback_insight(prompt)
+        
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"analytics-{uuid.uuid4()}",
+            system_message="You are an expert data analyst providing actionable business insights. Be concise, specific, and focus on actionable recommendations. Always provide insights in 2-3 sentences max."
+        ).with_model("openai", "gpt-5.2")
+        
+        full_prompt = f"{context}\n\n{prompt}" if context else prompt
+        user_message = UserMessage(text=full_prompt)
+        response = await chat.send_message(user_message)
+        return response
+    except Exception as e:
+        logger.error(f"AI insight generation error: {e}")
+        return generate_fallback_insight(prompt)
+
+def generate_fallback_insight(prompt: str) -> str:
+    """Generate fallback insight when AI is unavailable"""
+    if "trend" in prompt.lower():
+        return "The data shows notable patterns that warrant further investigation. Consider monitoring key metrics regularly to identify emerging trends."
+    elif "anomaly" in prompt.lower():
+        return "Anomalies detected in the data may indicate outliers or data quality issues. Review flagged records for potential business impact."
+    elif "forecast" in prompt.lower():
+        return "Forecasting models suggest continued patterns based on historical data. Consider external factors that may influence future values."
+    elif "recommendation" in prompt.lower() or "prescriptive" in prompt.lower():
+        return "Based on the analysis, focus on optimizing high-impact metrics while monitoring risk factors. Implement regular review cycles."
+    return "Data analysis reveals patterns worth exploring further. Consider segmenting the data for deeper insights."
+
+# ===================== AUTH ROUTES =====================
+
+@api_router.post("/auth/register", response_model=TokenResponse)
+async def register_user(user_data: UserCreate):
+    """Register a new user"""
+    # Check if email already exists
+    existing = await db.users.find_one({"email": user_data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Validate role
+    if user_data.role not in ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {list(ROLE_HIERARCHY.keys())}")
+    
+    # Create user
+    user_id = str(uuid.uuid4())
+    user_doc = {
+        "id": user_id,
+        "email": user_data.email,
+        "name": user_data.name,
+        "password_hash": hash_password(user_data.password),
+        "role": user_data.role,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user_doc)
+    
+    # Log audit
+    await log_audit(user_id, user_data.email, "register", "user", user_id)
+    
+    # Generate token
+    access_token = create_access_token({"sub": user_id, "email": user_data.email, "role": user_data.role})
+    
+    return TokenResponse(
+        access_token=access_token,
+        user=UserResponse(
+            id=user_id,
+            email=user_data.email,
+            name=user_data.name,
+            role=user_data.role,
+            created_at=datetime.now(timezone.utc),
+            is_active=True
+        )
+    )
+
+@api_router.post("/auth/login", response_model=TokenResponse)
+async def login_user(credentials: UserLogin):
+    """Login user and return JWT token"""
+    user = await db.users.find_one({"email": credentials.email})
+    
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Account is disabled")
+    
+    # Log audit
+    await log_audit(user["id"], user["email"], "login", "auth")
+    
+    # Generate token
+    access_token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"]})
+    
+    created_at = user.get("created_at")
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at)
+    
+    return TokenResponse(
+        access_token=access_token,
+        user=UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            role=user["role"],
+            created_at=created_at,
+            is_active=user.get("is_active", True)
+        )
+    )
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_current_user_info(user: dict = Depends(require_auth)):
+    """Get current user information"""
+    created_at = user.get("created_at")
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at)
+    
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        name=user["name"],
+        role=user["role"],
+        created_at=created_at,
+        is_active=user.get("is_active", True)
+    )
+
+@api_router.get("/auth/users")
+async def list_users(user: dict = Depends(require_auth)):
+    """List all users (admin/manager only)"""
+    if not check_permission(user, "manage_users") and user["role"] != "manager":
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    
+    # Managers can only see users below their level
+    if user["role"] == "manager":
+        users = [u for u in users if ROLE_HIERARCHY.get(u["role"], 0) < ROLE_HIERARCHY.get("manager", 0)]
+    
+    return users
+
+@api_router.put("/auth/users/{user_id}/role")
+async def update_user_role(user_id: str, new_role: str, user: dict = Depends(require_auth)):
+    """Update user role (admin only)"""
+    if not check_permission(user, "manage_users"):
+        raise HTTPException(status_code=403, detail="Only admins can change user roles")
+    
+    if new_role not in ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {list(ROLE_HIERARCHY.keys())}")
+    
+    target_user = await db.users.find_one({"id": user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Cannot change own role
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"role": new_role, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    await log_audit(user["id"], user["email"], "update_role", "user", user_id, 
+                   {"old_role": target_user["role"], "new_role": new_role})
+    
+    return {"success": True, "message": f"Role updated to {new_role}"}
+
+@api_router.put("/auth/users/{user_id}/status")
+async def toggle_user_status(user_id: str, user: dict = Depends(require_auth)):
+    """Enable/disable user (admin only)"""
+    if not check_permission(user, "manage_users"):
+        raise HTTPException(status_code=403, detail="Only admins can manage user status")
+    
+    target_user = await db.users.find_one({"id": user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot disable your own account")
+    
+    new_status = not target_user.get("is_active", True)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    await log_audit(user["id"], user["email"], "toggle_status", "user", user_id, {"is_active": new_status})
+    
+    return {"success": True, "is_active": new_status}
+
+# ===================== AUDIT ROUTES =====================
+
+@api_router.get("/audit/logs")
+async def get_audit_logs(
+    limit: int = Query(100, ge=1, le=1000),
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    user: dict = Depends(require_auth)
+):
+    """Get audit logs (admin/manager only)"""
+    if not check_permission(user, "view_audit"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to view audit logs")
+    
+    query = {}
+    if action:
+        query["action"] = action
+    if resource_type:
+        query["resource_type"] = resource_type
+    
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+    return logs
+
+# ===================== DATA MASKING ROUTES =====================
+
+@api_router.put("/datasets/{dataset_id}/sensitive-columns")
+async def update_sensitive_columns(
+    dataset_id: str,
+    sensitive_columns: List[str],
+    user: dict = Depends(require_auth)
+):
+    """Mark columns as sensitive for data masking (admin/manager only)"""
+    if not check_permission(user, "mask_data") and user["role"] != "manager":
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    dataset = await db.datasets.find_one({"id": dataset_id})
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    # Validate columns exist
+    invalid_cols = [col for col in sensitive_columns if col not in dataset.get("column_names", [])]
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid columns: {invalid_cols}")
+    
+    await db.datasets.update_one(
+        {"id": dataset_id},
+        {"$set": {"sensitive_columns": sensitive_columns}}
+    )
+    
+    await log_audit(user["id"], user["email"], "update_sensitive_columns", "dataset", dataset_id,
+                   {"columns": sensitive_columns})
+    
+    return {"success": True, "sensitive_columns": sensitive_columns}
+
+# ===================== AI-POWERED ANALYTICS ROUTES =====================
+
+@api_router.post("/ai/describe-chart")
+async def describe_chart_ai(request: AIInsightRequest, user: dict = Depends(get_current_user)):
+    """Generate AI-powered chart description"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        dataset = await db.datasets.find_one({"id": request.dataset_id}, {"_id": 0})
+        df = pd.DataFrame(data_doc['data'])
+        
+        # Build context for AI
+        context = request.context or {}
+        chart_type = context.get("chart_type", "visualization")
+        columns = context.get("columns", df.columns.tolist()[:3])
+        
+        # Calculate statistics for context
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        stats_summary = {}
+        for col in numeric_cols[:3]:
+            stats_summary[col] = {
+                "mean": float(df[col].mean()),
+                "std": float(df[col].std()),
+                "trend": "increasing" if df[col].iloc[-10:].mean() > df[col].iloc[:10].mean() else "decreasing" if len(df) > 20 else "stable"
+            }
+        
+        prompt = f"""Analyze this {chart_type} visualization for dataset '{dataset.get('title', dataset['name'])}':
+        
+Columns analyzed: {', '.join(columns)}
+Total records: {len(df)}
+Statistics: {json.dumps(stats_summary, indent=2)}
+
+Provide a concise, actionable insight about what this visualization reveals. Focus on business implications."""
+
+        insight = await generate_ai_insight(prompt)
+        
+        if user:
+            await log_audit(user["id"], user["email"], "ai_describe_chart", "dataset", request.dataset_id)
+        
+        return {"insight": insight, "chart_type": chart_type, "dataset_id": request.dataset_id}
+        
+    except Exception as e:
+        logger.error(f"AI chart description error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/ai/analyze-data")
+async def analyze_data_ai(request: AIInsightRequest, user: dict = Depends(get_current_user)):
+    """Generate comprehensive AI-powered data analysis"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        dataset = await db.datasets.find_one({"id": request.dataset_id}, {"_id": 0})
+        df = pd.DataFrame(data_doc['data'])
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        # Comprehensive analysis
+        analysis = {
+            "data_quality": {
+                "total_records": len(df),
+                "missing_percentage": float(df.isnull().sum().sum() / (len(df) * len(df.columns)) * 100),
+                "duplicate_rows": int(df.duplicated().sum())
+            },
+            "statistical_summary": {},
+            "correlations": {},
+            "trends": {}
+        }
+        
+        # Statistical summary
+        for col in numeric_cols[:5]:
+            analysis["statistical_summary"][col] = {
+                "mean": float(df[col].mean()),
+                "median": float(df[col].median()),
+                "std": float(df[col].std()),
+                "skewness": float(df[col].skew()) if len(df) > 2 else 0
+            }
+        
+        # Correlations
+        if len(numeric_cols) >= 2:
+            corr_matrix = df[numeric_cols[:5]].corr()
+            for i, col1 in enumerate(numeric_cols[:5]):
+                for col2 in numeric_cols[i+1:5]:
+                    corr = corr_matrix.loc[col1, col2]
+                    if abs(corr) > 0.5:
+                        analysis["correlations"][f"{col1}_vs_{col2}"] = float(corr)
+        
+        # Trend detection
+        for col in numeric_cols[:3]:
+            values = df[col].dropna().values
+            if len(values) > 10:
+                x = np.arange(len(values))
+                slope, _, r_value, _, _ = stats.linregress(x, values)
+                analysis["trends"][col] = {
+                    "direction": "increasing" if slope > 0 else "decreasing",
+                    "strength": float(abs(r_value))
+                }
+        
+        # Generate AI insight
+        prompt = f"""Analyze this dataset comprehensively:
+
+Dataset: {dataset.get('title', dataset['name'])}
+Records: {len(df)}
+Data Quality: {analysis['data_quality']['missing_percentage']:.1f}% missing data
+Key Statistics: {json.dumps(analysis['statistical_summary'], indent=2)}
+Strong Correlations: {json.dumps(analysis['correlations'], indent=2)}
+Trends: {json.dumps(analysis['trends'], indent=2)}
+
+Provide key findings and business implications in 3-4 bullet points."""
+
+        ai_insight = await generate_ai_insight(prompt)
+        analysis["ai_insight"] = ai_insight
+        
+        if user:
+            await log_audit(user["id"], user["email"], "ai_analyze_data", "dataset", request.dataset_id)
+        
+        return analysis
+        
+    except Exception as e:
+        logger.error(f"AI data analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/ai/prescriptive")
+async def get_prescriptive_analytics(request: PrescriptiveRequest, user: dict = Depends(get_current_user)):
+    """Generate prescriptive analytics - 'What should we do?' recommendations"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        dataset = await db.datasets.find_one({"id": request.dataset_id}, {"_id": 0})
+        df = pd.DataFrame(data_doc['data'])
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        prescriptive = {
+            "recommendations": [],
+            "optimization_opportunities": [],
+            "risk_factors": [],
+            "action_items": []
+        }
+        
+        # Data Quality Recommendations
+        missing_pct = df.isnull().sum().sum() / (len(df) * len(df.columns)) * 100
+        if missing_pct > 10:
+            prescriptive["recommendations"].append({
+                "category": "Data Quality",
+                "priority": "HIGH",
+                "recommendation": f"Address data quality issues - {missing_pct:.1f}% missing data",
+                "action": "Implement data validation rules and establish data collection protocols",
+                "expected_impact": "Improved analysis accuracy and decision reliability"
+            })
+        
+        # Trend-based Recommendations
+        for col in numeric_cols[:3]:
+            values = df[col].dropna().values
+            if len(values) > 20:
+                x = np.arange(len(values))
+                slope, _, r_value, _, _ = stats.linregress(x, values)
+                
+                if abs(r_value) > 0.5:
+                    if slope > 0:
+                        prescriptive["optimization_opportunities"].append({
+                            "metric": col,
+                            "current_trend": "Positive growth",
+                            "recommendation": f"Capitalize on positive trend in {col}",
+                            "action": "Increase investment and resources in this area",
+                            "projected_benefit": f"Continue {abs(slope):.2f} units growth per period"
+                        })
+                    else:
+                        prescriptive["risk_factors"].append({
+                            "metric": col,
+                            "current_trend": "Declining",
+                            "risk_level": "MEDIUM" if abs(slope) < 1 else "HIGH",
+                            "recommendation": f"Investigate declining trend in {col}",
+                            "action": "Conduct root cause analysis and implement corrective measures"
+                        })
+        
+        # Anomaly-based Recommendations
+        if len(numeric_cols) > 0:
+            try:
+                X = df[numeric_cols[:3]].dropna()
+                if len(X) > 10:
+                    clf = IsolationForest(contamination=0.1, random_state=42)
+                    predictions = clf.fit_predict(X)
+                    anomaly_pct = (predictions == -1).sum() / len(X) * 100
+                    
+                    if anomaly_pct > 15:
+                        prescriptive["risk_factors"].append({
+                            "metric": "Data Anomalies",
+                            "current_status": f"{anomaly_pct:.1f}% anomalous records",
+                            "risk_level": "HIGH" if anomaly_pct > 20 else "MEDIUM",
+                            "recommendation": "Review anomalous data points for fraud or errors",
+                            "action": "Establish anomaly monitoring and alert systems"
+                        })
+            except Exception as e:
+                logger.warning(f"Anomaly detection error: {e}")
+        
+        # Correlation-based Optimization
+        if len(numeric_cols) >= 2:
+            corr_matrix = df[numeric_cols].corr()
+            for i, col1 in enumerate(numeric_cols[:5]):
+                for col2 in numeric_cols[i+1:5]:
+                    corr = corr_matrix.loc[col1, col2]
+                    if corr > 0.7:
+                        prescriptive["optimization_opportunities"].append({
+                            "insight": f"Strong correlation ({corr:.2f}) between {col1} and {col2}",
+                            "recommendation": f"Use {col1} as leading indicator for {col2}",
+                            "action": "Build predictive models leveraging this relationship"
+                        })
+        
+        # Generate AI-powered strategic recommendations
+        business_context = request.business_context or "general business analytics"
+        optimization_goals = request.optimization_goals or ["improve efficiency", "reduce costs", "increase growth"]
+        
+        prompt = f"""Based on this data analysis, provide strategic prescriptive recommendations:
+
+Dataset: {dataset.get('title', dataset['name'])}
+Business Context: {business_context}
+Optimization Goals: {', '.join(optimization_goals)}
+
+Current Findings:
+- Data Quality: {missing_pct:.1f}% missing data
+- Identified Risks: {len(prescriptive['risk_factors'])} factors
+- Optimization Opportunities: {len(prescriptive['optimization_opportunities'])} opportunities
+
+Provide 3-5 specific, actionable strategic recommendations with expected outcomes."""
+
+        ai_recommendations = await generate_ai_insight(prompt)
+        prescriptive["ai_strategic_recommendations"] = ai_recommendations
+        
+        # Generate specific action items
+        prescriptive["action_items"] = [
+            {
+                "priority": 1,
+                "action": "Review and clean data quality issues" if missing_pct > 5 else "Maintain current data quality standards",
+                "timeline": "Immediate",
+                "owner": "Data Team"
+            },
+            {
+                "priority": 2,
+                "action": "Investigate declining trends" if any(r["current_trend"] == "Declining" for r in prescriptive.get("risk_factors", [])) else "Monitor current growth trends",
+                "timeline": "This week",
+                "owner": "Analytics Team"
+            },
+            {
+                "priority": 3,
+                "action": "Build predictive models for key correlations",
+                "timeline": "This month",
+                "owner": "Data Science Team"
+            }
+        ]
+        
+        if user:
+            await log_audit(user["id"], user["email"], "prescriptive_analytics", "dataset", request.dataset_id)
+        
+        return prescriptive
+        
+    except Exception as e:
+        logger.error(f"Prescriptive analytics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ===================== ML MODEL ROUTES =====================
+
+@api_router.post("/ml/predict")
+async def ml_prediction(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
+    """Run ML prediction model on dataset"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        df = pd.DataFrame(data_doc['data'])
+        
+        target_column = request.parameters.get("target_column") if request.parameters else None
+        if not target_column:
+            raise HTTPException(status_code=400, detail="target_column parameter required")
+        
+        if target_column not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Column '{target_column}' not found in dataset")
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        feature_cols = [col for col in numeric_cols if col != target_column]
+        
+        if len(feature_cols) < 1:
+            raise HTTPException(status_code=400, detail="Need at least one numeric feature column")
+        
+        # Prepare data
+        X = df[feature_cols].fillna(df[feature_cols].mean())
+        y = df[target_column].fillna(df[target_column].mean())
+        
+        # Train model
+        model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10)
+        model.fit(X, y)
+        
+        # Get predictions
+        predictions = model.predict(X)
+        
+        # Feature importance
+        feature_importance = dict(zip(feature_cols, model.feature_importances_.tolist()))
+        sorted_importance = dict(sorted(feature_importance.items(), key=lambda x: x[1], reverse=True))
+        
+        # Model performance
+        from sklearn.metrics import r2_score, mean_absolute_error
+        r2 = r2_score(y, predictions)
+        mae = mean_absolute_error(y, predictions)
+        
+        result = {
+            "model_type": "Random Forest Regressor",
+            "target_column": target_column,
+            "features_used": feature_cols,
+            "performance": {
+                "r2_score": float(r2),
+                "mean_absolute_error": float(mae)
+            },
+            "feature_importance": sorted_importance,
+            "predictions_sample": predictions[:10].tolist(),
+            "actual_sample": y[:10].tolist()
+        }
+        
+        # Generate AI insight about the model
+        prompt = f"""Analyze this ML model performance and provide recommendations:
+
+Model: Random Forest Regressor
+Target: {target_column}
+R² Score: {r2:.3f}
+Mean Absolute Error: {mae:.2f}
+Top Features: {list(sorted_importance.keys())[:3]}
+
+What does this model performance indicate and how can it be improved?"""
+        
+        result["ai_insight"] = await generate_ai_insight(prompt)
+        
+        if user:
+            await log_audit(user["id"], user["email"], "ml_prediction", "dataset", request.dataset_id)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"ML prediction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/ml/cluster")
+async def ml_clustering(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
+    """Run clustering analysis on dataset"""
+    try:
+        data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
+        if not data_doc:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        df = pd.DataFrame(data_doc['data'])
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        if len(numeric_cols) < 2:
+            raise HTTPException(status_code=400, detail="Need at least 2 numeric columns for clustering")
+        
+        columns = request.columns or numeric_cols[:5]
+        n_clusters = request.parameters.get("n_clusters", 3) if request.parameters else 3
+        
+        # Prepare data
+        X = df[columns].dropna()
+        if len(X) < n_clusters:
+            raise HTTPException(status_code=400, detail=f"Need at least {n_clusters} data points for {n_clusters} clusters")
+        
+        # Standardize
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Fit KMeans
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        clusters = kmeans.fit_predict(X_scaled)
+        
+        # Analyze clusters
+        X['cluster'] = clusters
+        cluster_stats = {}
+        for i in range(n_clusters):
+            cluster_data = X[X['cluster'] == i]
+            cluster_stats[f"cluster_{i}"] = {
+                "size": len(cluster_data),
+                "percentage": float(len(cluster_data) / len(X) * 100),
+                "center": {col: float(cluster_data[col].mean()) for col in columns}
+            }
+        
+        # Generate AI insight
+        prompt = f"""Analyze these customer/data segments from clustering:
+
+Number of clusters: {n_clusters}
+Cluster sizes: {[cluster_stats[f'cluster_{i}']['size'] for i in range(n_clusters)]}
+Features analyzed: {columns}
+
+Provide actionable insights about what these segments represent and how to target them."""
+        
+        ai_insight = await generate_ai_insight(prompt)
+        
+        result = {
+            "model_type": "K-Means Clustering",
+            "n_clusters": n_clusters,
+            "columns_analyzed": columns,
+            "cluster_stats": cluster_stats,
+            "inertia": float(kmeans.inertia_),
+            "ai_insight": ai_insight
+        }
+        
+        if user:
+            await log_audit(user["id"], user["email"], "ml_clustering", "dataset", request.dataset_id)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Clustering error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ===================== EXISTING ROUTES (UPDATED) =====================
+
 @api_router.get("/")
 async def root():
-    return {"message": "E1 Analytics API"}
+    return {"message": "E1 Analytics API", "version": "2.0.0", "features": ["AI Analytics", "ML Models", "Prescriptive Analytics", "RBAC"]}
 
 @api_router.post("/datasets/upload")
-async def upload_dataset(file: UploadFile = File(...), title: str = None):
+async def upload_dataset(file: UploadFile = File(...), title: str = None, user: dict = Depends(get_current_user)):
     """Upload CSV, Excel, JSON, or Text file"""
     try:
         contents = await file.read()
@@ -129,7 +978,6 @@ async def upload_dataset(file: UploadFile = File(...), title: str = None):
             else:
                 raise HTTPException(status_code=400, detail="Invalid JSON format")
         elif file.filename.endswith('.txt'):
-            # Try to read as CSV with tab or comma delimiter
             try:
                 df = pd.read_csv(io.BytesIO(contents), delimiter='\t')
             except:
@@ -161,20 +1009,25 @@ async def upload_dataset(file: UploadFile = File(...), title: str = None):
             rows=len(df),
             columns=len(df.columns),
             column_names=df.columns.tolist(),
-            column_types=column_types
+            column_types=column_types,
+            owner_id=user["id"] if user else None
         )
         
         doc = dataset.model_dump()
         doc['uploaded_at'] = doc['uploaded_at'].isoformat()
         await db.datasets.insert_one(doc)
         
+        if user:
+            await log_audit(user["id"], user["email"], "upload_dataset", "dataset", dataset_id)
+        
         return dataset
         
     except Exception as e:
+        logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/datasets/upload-from-api")
-async def upload_from_api(api_url: str, headers: Optional[Dict[str, str]] = None):
+async def upload_from_api(api_url: str, headers: Optional[Dict[str, str]] = None, user: dict = Depends(get_current_user)):
     """Upload data from API endpoint"""
     try:
         import requests
@@ -210,26 +1063,32 @@ async def upload_from_api(api_url: str, headers: Optional[Dict[str, str]] = None
             rows=len(df),
             columns=len(df.columns),
             column_names=df.columns.tolist(),
-            column_types=column_types
+            column_types=column_types,
+            owner_id=user["id"] if user else None
         )
         
         doc = dataset.model_dump()
         doc['uploaded_at'] = doc['uploaded_at'].isoformat()
         await db.datasets.insert_one(doc)
         
+        if user:
+            await log_audit(user["id"], user["email"], "upload_from_api", "dataset", dataset_id)
+        
         return dataset
         
     except Exception as e:
+        logger.error(f"API upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/datasets/upload-from-mysql")
 async def upload_from_mysql(
     host: str,
     database: str,
-    user: str,
+    user_db: str,
     password: str,
     query: str,
-    port: int = 3306
+    port: int = 3306,
+    user: dict = Depends(get_current_user)
 ):
     """Upload data from MySQL database"""
     try:
@@ -238,7 +1097,7 @@ async def upload_from_mysql(
         connection = pymysql.connect(
             host=host,
             port=port,
-            user=user,
+            user=user_db,
             password=password,
             database=database
         )
@@ -267,20 +1126,25 @@ async def upload_from_mysql(
             rows=len(df),
             columns=len(df.columns),
             column_names=df.columns.tolist(),
-            column_types=column_types
+            column_types=column_types,
+            owner_id=user["id"] if user else None
         )
         
         doc = dataset.model_dump()
         doc['uploaded_at'] = doc['uploaded_at'].isoformat()
         await db.datasets.insert_one(doc)
         
+        if user:
+            await log_audit(user["id"], user["email"], "upload_from_mysql", "dataset", dataset_id)
+        
         return dataset
         
     except Exception as e:
+        logger.error(f"MySQL upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/datasets", response_model=List[Dataset])
-async def get_datasets(search: Optional[str] = None):
+async def get_datasets(search: Optional[str] = None, user: dict = Depends(get_current_user)):
     """Get all datasets with optional search"""
     query = {}
     if search:
@@ -293,13 +1157,17 @@ async def get_datasets(search: Optional[str] = None):
     for ds in datasets:
         if isinstance(ds['uploaded_at'], str):
             ds['uploaded_at'] = datetime.fromisoformat(ds['uploaded_at'])
-        # Ensure title exists for backward compatibility
         if 'title' not in ds or not ds['title']:
             ds['title'] = ds['name'].split('.')[0]
+        # Set defaults for new fields
+        if 'sensitive_columns' not in ds:
+            ds['sensitive_columns'] = []
+        if 'access_level' not in ds:
+            ds['access_level'] = 'public'
     return datasets
 
 @api_router.put("/datasets/{dataset_id}/title")
-async def update_dataset_title(dataset_id: str, title: str):
+async def update_dataset_title(dataset_id: str, title: str, user: dict = Depends(get_current_user)):
     """Update dataset title"""
     result = await db.datasets.update_one(
         {"id": dataset_id},
@@ -307,10 +1175,14 @@ async def update_dataset_title(dataset_id: str, title: str):
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    if user:
+        await log_audit(user["id"], user["email"], "update_title", "dataset", dataset_id)
+    
     return {"success": True}
 
 @api_router.post("/datasets/{dataset_id}/overview")
-async def save_dataset_overview(dataset_id: str, overview: DatasetOverview):
+async def save_dataset_overview(dataset_id: str, overview: DatasetOverview, user: dict = Depends(get_current_user)):
     """Save dataset overview with all analysis"""
     doc = overview.model_dump()
     doc['last_updated'] = doc['last_updated'].isoformat()
@@ -323,7 +1195,7 @@ async def save_dataset_overview(dataset_id: str, overview: DatasetOverview):
     return {"success": True}
 
 @api_router.get("/datasets/{dataset_id}/overview")
-async def get_dataset_overview(dataset_id: str):
+async def get_dataset_overview(dataset_id: str, user: dict = Depends(get_current_user)):
     """Get stored dataset overview"""
     overview = await db.dataset_overviews.find_one({"dataset_id": dataset_id}, {"_id": 0})
     if not overview:
@@ -331,7 +1203,7 @@ async def get_dataset_overview(dataset_id: str):
     return overview
 
 @api_router.get("/datasets/{dataset_id}")
-async def get_dataset(dataset_id: str, limit: int = Query(100, ge=1, le=10000)):
+async def get_dataset(dataset_id: str, limit: int = Query(100, ge=1, le=10000), user: dict = Depends(get_current_user)):
     """Get dataset with data preview"""
     dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
     if not dataset:
@@ -341,16 +1213,28 @@ async def get_dataset(dataset_id: str, limit: int = Query(100, ge=1, le=10000)):
     if not data_doc:
         raise HTTPException(status_code=404, detail="Dataset data not found")
     
+    data = data_doc['data'][:limit]
+    
+    # Apply data masking if user is not admin
+    sensitive_cols = dataset.get('sensitive_columns', [])
+    user_role = user["role"] if user else "viewer"
+    if sensitive_cols and user_role != "admin":
+        data = mask_sensitive_data(data, sensitive_cols, user_role)
+    
     return {
         "dataset": dataset,
-        "data": data_doc['data'][:limit],
+        "data": data,
         "total_rows": len(data_doc['data'])
     }
 
 @api_router.post("/datasets/{dataset_id}/clean")
-async def clean_dataset(dataset_id: str, operation: CleaningOperation):
+async def clean_dataset(dataset_id: str, operation: CleaningOperation, user: dict = Depends(get_current_user)):
     """Apply cleaning operations"""
     try:
+        # Check write permission
+        if user and not check_permission(user, "write"):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        
         data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id})
         if not data_doc:
             raise HTTPException(status_code=404, detail="Dataset not found")
@@ -402,13 +1286,18 @@ async def clean_dataset(dataset_id: str, operation: CleaningOperation):
             {"$set": {"rows": len(df)}}
         )
         
+        if user:
+            await log_audit(user["id"], user["email"], "clean_dataset", "dataset", dataset_id, 
+                          {"operation": operation.operation})
+        
         return {"success": True, "rows_remaining": len(df)}
         
     except Exception as e:
+        logger.error(f"Cleaning error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analytics/descriptive")
-async def descriptive_analytics(request: AnalyticsRequest):
+async def descriptive_analytics(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
     """Get descriptive statistics"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
@@ -440,10 +1329,11 @@ async def descriptive_analytics(request: AnalyticsRequest):
         return {"statistics": stats_dict}
         
     except Exception as e:
+        logger.error(f"Descriptive analytics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analytics/time-series")
-async def time_series_analysis(request: AnalyticsRequest):
+async def time_series_analysis(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
     """Perform time-series analysis"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
@@ -474,10 +1364,11 @@ async def time_series_analysis(request: AnalyticsRequest):
         return {"data": result}
         
     except Exception as e:
+        logger.error(f"Time series error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analytics/trends")
-async def detect_trends(request: AnalyticsRequest):
+async def detect_trends(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
     """Detect trends in data"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
@@ -508,10 +1399,11 @@ async def detect_trends(request: AnalyticsRequest):
         }
         
     except Exception as e:
+        logger.error(f"Trend detection error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analytics/anomalies")
-async def detect_anomalies(request: AnalyticsRequest):
+async def detect_anomalies(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
     """Detect anomalies using Isolation Forest"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
@@ -542,10 +1434,11 @@ async def detect_anomalies(request: AnalyticsRequest):
         }
         
     except Exception as e:
+        logger.error(f"Anomaly detection error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analytics/forecast")
-async def forecast_data(request: AnalyticsRequest):
+async def forecast_data(request: AnalyticsRequest, user: dict = Depends(get_current_user)):
     """Forecast future values"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": request.dataset_id})
@@ -587,18 +1480,23 @@ async def forecast_data(request: AnalyticsRequest):
             }
         
     except Exception as e:
+        logger.error(f"Forecasting error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/dashboards")
-async def create_dashboard(dashboard: Dashboard):
+async def create_dashboard(dashboard: Dashboard, user: dict = Depends(get_current_user)):
     """Create a new dashboard"""
     doc = dashboard.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.dashboards.insert_one(doc)
+    
+    if user:
+        await log_audit(user["id"], user["email"], "create_dashboard", "dashboard", dashboard.id)
+    
     return dashboard
 
 @api_router.get("/dashboards", response_model=List[Dashboard])
-async def get_dashboards():
+async def get_dashboards(user: dict = Depends(get_current_user)):
     """Get all dashboards"""
     dashboards = await db.dashboards.find({}, {"_id": 0}).to_list(1000)
     for dash in dashboards:
@@ -607,14 +1505,21 @@ async def get_dashboards():
     return dashboards
 
 @api_router.delete("/datasets/{dataset_id}")
-async def delete_dataset(dataset_id: str):
+async def delete_dataset(dataset_id: str, user: dict = Depends(get_current_user)):
     """Delete a dataset"""
+    if user and not check_permission(user, "delete"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions to delete")
+    
     await db.datasets.delete_one({"id": dataset_id})
     await db.dataset_data.delete_one({"dataset_id": dataset_id})
+    
+    if user:
+        await log_audit(user["id"], user["email"], "delete_dataset", "dataset", dataset_id)
+    
     return {"success": True}
 
 @api_router.get("/datasets/{dataset_id}/auto-charts")
-async def generate_auto_charts(dataset_id: str):
+async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current_user)):
     """Generate predefined charts automatically with AI-generated insights"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id})
@@ -630,90 +1535,18 @@ async def generate_auto_charts(dataset_id: str):
         charts = []
         
         # Helper function to generate AI insights
-        def generate_insight(chart_type, column_name, stats_context):
-            """Generate AI-powered insights based on data analysis"""
-            # Calculate actual metrics
-            if chart_type == "distribution" and len(numeric_cols) >= 1:
-                col_data = df[numeric_cols[0]].dropna()
-                mean_val = col_data.mean()
-                std_val = col_data.std()
-                cv = (std_val / mean_val * 100) if mean_val != 0 else 0
+        async def generate_chart_insight(chart_type: str, data_context: dict) -> str:
+            try:
+                prompt = f"""Analyze this {chart_type} chart showing:
+                - Dataset: {dataset.get('title', dataset['name'])}
+                - Data points: {data_context.get('data_points', 'N/A')}
+                - Key metrics: {data_context.get('metrics', 'N/A')}
                 
-                insight = f"The distribution of {numeric_cols[0]} shows "
-                if cv < 20:
-                    insight += f"low variability (CV: {cv:.1f}%), indicating consistent and stable values. "
-                elif cv < 50:
-                    insight += f"moderate variability (CV: {cv:.1f}%), suggesting some fluctuation in the data. "
-                else:
-                    insight += f"high variability (CV: {cv:.1f}%), indicating significant variation that may require investigation. "
+                Provide a concise, actionable insight (2 sentences max)."""
                 
-                insight += f"Mean value of {mean_val:.2f} provides a reliable central tendency metric for decision-making."
-                return insight
-            
-            elif chart_type == "trend" and len(numeric_cols) >= 1:
-                values = df[numeric_cols[0]].dropna().values[:50]
-                if len(values) > 1:
-                    x = np.arange(len(values))
-                    slope, _, r_value, _, _ = stats.linregress(x, values)
-                    
-                    direction = "upward" if slope > 0 else "downward"
-                    strength = "strong" if abs(r_value) > 0.7 else "moderate" if abs(r_value) > 0.3 else "weak"
-                    
-                    insight = f"Analysis reveals a {strength} {direction} trend (R²: {r_value**2:.3f}). "
-                    if slope > 0:
-                        growth_rate = (slope / values[0] * 100) if values[0] != 0 else 0
-                        insight += f"The positive slope of {slope:.2f} indicates growth at approximately {growth_rate:.1f}% per period. "
-                        insight += "This suggests expanding opportunities and potential for continued upward momentum. "
-                        insight += "Recommendation: Capitalize on this trend by increasing resource allocation."
-                    else:
-                        decline_rate = (abs(slope) / values[0] * 100) if values[0] != 0 else 0
-                        insight += f"The negative slope of {slope:.2f} indicates decline at approximately {decline_rate:.1f}% per period. "
-                        insight += "This requires immediate attention to identify root causes. "
-                        insight += "Recommendation: Implement corrective measures and establish monitoring checkpoints."
-                    
-                    return insight
-                return "Insufficient data points for robust trend analysis."
-            
-            elif chart_type == "composition":
-                total = df[numeric_cols[0]].sum()
-                top_value = df[numeric_cols[0]].max()
-                top_pct = (top_value / total * 100) if total > 0 else 0
-                
-                insight = f"Composition analysis shows the largest segment accounts for {top_pct:.1f}% of total {numeric_cols[0]}. "
-                if top_pct > 50:
-                    insight += "This high concentration indicates potential dependency risk. "
-                    insight += "Recommendation: Diversify to reduce vulnerability to single-point failures."
-                elif top_pct > 30:
-                    insight += "This represents balanced distribution with a clear leader. "
-                    insight += "Recommendation: Maintain current balance while monitoring for shifts."
-                else:
-                    insight += "This indicates highly diversified distribution. "
-                    insight += "Recommendation: Leverage this diversity for risk mitigation strategies."
-                
-                return insight
-            
-            elif chart_type == "correlation" and len(numeric_cols) >= 2:
-                corr = df[numeric_cols[:2]].corr().iloc[0, 1]
-                
-                insight = f"Correlation analysis between {numeric_cols[0]} and {numeric_cols[1]} reveals a coefficient of {corr:.3f}. "
-                if abs(corr) > 0.7:
-                    insight += "This strong correlation indicates highly predictable relationship. "
-                    if corr > 0:
-                        insight += f"As {numeric_cols[0]} increases, {numeric_cols[1]} reliably increases. "
-                        insight += "Recommendation: Use one metric as a leading indicator for the other."
-                    else:
-                        insight += f"As {numeric_cols[0]} increases, {numeric_cols[1]} reliably decreases. "
-                        insight += "Recommendation: Balance trade-offs between these inversely related metrics."
-                elif abs(corr) > 0.3:
-                    insight += "This moderate correlation suggests some relationship worth monitoring. "
-                    insight += "Recommendation: Consider both metrics when making strategic decisions."
-                else:
-                    insight += "This weak correlation indicates independent behavior. "
-                    insight += "Recommendation: Treat these metrics as separate KPIs with distinct optimization strategies."
-                
-                return insight
-            
-            return "Data analysis in progress. Insights will be generated based on continued monitoring."
+                return await generate_ai_insight(prompt)
+            except:
+                return generate_fallback_insight(chart_type)
         
         # 1. Distribution Chart (Bar/Column)
         if len(numeric_cols) >= 1 and len(all_cols) >= 1:
@@ -722,114 +1555,10 @@ async def generate_auto_charts(dataset_id: str):
                 for key in record:
                     record[key] = serialize_for_json(record[key])
             
-            charts.append({
-                "type": "bar",
-                "title": "Distribution Overview",
-                "description": f"Comparative analysis of {', '.join(numeric_cols[:2])} across different {all_cols[0]} categories",
-                "data": chart_data,
-                "x_axis": all_cols[0],
-                "y_axis": numeric_cols[:2],
-                "insight": generate_insight("distribution", numeric_cols[0], df[numeric_cols[0]].describe())
+            insight = await generate_chart_insight("bar distribution", {
+                "data_points": len(chart_data),
+                "metrics": numeric_cols[:2]
             })
-        
-        # 2. Trend Analysis (Line Chart)
-        if len(numeric_cols) >= 1:
-            chart_data = df.head(50)[[all_cols[0]] + numeric_cols[:3]].to_dict('records')
-            for record in chart_data:
-                for key in record:
-                    record[key] = serialize_for_json(record[key])
-            
-            charts.append({
-                "type": "line",
-                "title": "Trend Analysis Over Time",
-                "description": f"Temporal patterns and directional movement in {', '.join(numeric_cols[:3])}",
-                "data": chart_data,
-                "x_axis": all_cols[0],
-                "y_axis": numeric_cols[:3],
-                "insight": generate_insight("trend", numeric_cols[0], None)
-            })
-        
-        # 3. Composition Chart (Pie)
-        if len(numeric_cols) >= 1:
-            pie_data = df.head(10)[[all_cols[0], numeric_cols[0]]].to_dict('records')
-            for record in pie_data:
-                for key in record:
-                    record[key] = serialize_for_json(record[key])
-            
-            charts.append({
-                "type": "pie",
-                "title": "Composition Breakdown",
-                "description": f"Proportional distribution showing relative contribution of each {all_cols[0]} segment",
-                "data": pie_data,
-                "value_column": numeric_cols[0],
-                "label_column": all_cols[0],
-                "insight": generate_insight("composition", numeric_cols[0], None)
-            })
-        
-        # 4. Comparison Chart (Area)
-        if len(numeric_cols) >= 2:
-            chart_data = df.head(30)[[all_cols[0]] + numeric_cols[:2]].to_dict('records')
-            for record in chart_data:
-                for key in record:
-                    record[key] = serialize_for_json(record[key])
-            
-            corr = df[numeric_cols[:2]].corr().iloc[0, 1] if len(numeric_cols) >= 2 else 0
-            
-            charts.append({
-                "type": "area",
-                "title": "Comparative Area Analysis",
-                "description": f"Overlapping trends showing cumulative patterns between {numeric_cols[0]} and {numeric_cols[1]}",
-                "data": chart_data,
-                "x_axis": all_cols[0],
-                "y_axis": numeric_cols[:2],
-                "insight": generate_insight("correlation", None, {"corr": corr})
-            })
-        
-        # 5. Correlation Scatter Plot
-        if len(numeric_cols) >= 2:
-            scatter_data = df.head(100)[numeric_cols[:2]].to_dict('records')
-            for record in scatter_data:
-                for key in record:
-                    record[key] = serialize_for_json(record[key])
-            
-            charts.append({
-                "type": "scatter",
-                "title": "Correlation Analysis",
-                "description": f"Scatter plot revealing relationship strength and direction between variables",
-                "data": scatter_data,
-                "x_axis": numeric_cols[0],
-                "y_axis": numeric_cols[1],
-                "insight": generate_insight("correlation", None, None)
-            })
-        
-        return {
-            "dataset_id": dataset_id,
-            "dataset_name": dataset['name'],
-            "charts": charts,
-            "summary": f"Generated {len(charts)} AI-powered charts with actionable insights based on statistical analysis and machine learning patterns."
-        }
-        
-    except Exception as e:
-        logger.error(f"Auto-chart generation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-        data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id})
-        if not data_doc:
-            raise HTTPException(status_code=404, detail="Dataset not found")
-        
-        dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
-        df = pd.DataFrame(data_doc['data'])
-        
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        all_cols = df.columns.tolist()
-        
-        charts = []
-        
-        # 1. Distribution Chart (Bar/Column)
-        if len(numeric_cols) >= 1 and len(all_cols) >= 1:
-            chart_data = df.head(20)[[all_cols[0]] + numeric_cols[:2]].to_dict('records')
-            for record in chart_data:
-                for key in record:
-                    record[key] = serialize_for_json(record[key])
             
             charts.append({
                 "type": "bar",
@@ -838,7 +1567,7 @@ async def generate_auto_charts(dataset_id: str):
                 "data": chart_data,
                 "x_axis": all_cols[0],
                 "y_axis": numeric_cols[:2],
-                "insight": f"This chart shows the distribution and comparison of key metrics. Higher values in {numeric_cols[0]} indicate stronger performance in that category."
+                "insight": insight
             })
         
         # 2. Trend Analysis (Line Chart)
@@ -850,12 +1579,19 @@ async def generate_auto_charts(dataset_id: str):
             
             # Calculate trend
             values = df[numeric_cols[0]].dropna().values[:50]
+            trend = "stable"
+            slope = 0
             if len(values) > 1:
                 x = np.arange(len(values))
                 slope, _, _, _, _ = stats.linregress(x, values)
                 trend = "upward" if slope > 0 else "downward"
-            else:
-                trend = "stable"
+            
+            insight = await generate_chart_insight("trend line", {
+                "data_points": len(chart_data),
+                "metrics": numeric_cols[:3],
+                "trend": trend,
+                "slope": slope
+            })
             
             charts.append({
                 "type": "line",
@@ -864,7 +1600,7 @@ async def generate_auto_charts(dataset_id: str):
                 "data": chart_data,
                 "x_axis": all_cols[0],
                 "y_axis": numeric_cols[:3],
-                "insight": f"The data shows a {trend} trend. This pattern suggests {'growth and positive momentum' if trend == 'upward' else 'decline or stabilization'} in the key metrics over the observation period."
+                "insight": insight
             })
         
         # 3. Composition Chart (Pie)
@@ -878,6 +1614,12 @@ async def generate_auto_charts(dataset_id: str):
             top_value = df[numeric_cols[0]].max()
             top_pct = (top_value / total * 100) if total > 0 else 0
             
+            insight = await generate_chart_insight("pie composition", {
+                "data_points": len(pie_data),
+                "metrics": [numeric_cols[0]],
+                "top_percentage": top_pct
+            })
+            
             charts.append({
                 "type": "pie",
                 "title": "Composition Breakdown",
@@ -885,7 +1627,7 @@ async def generate_auto_charts(dataset_id: str):
                 "data": pie_data,
                 "value_column": numeric_cols[0],
                 "label_column": all_cols[0],
-                "insight": f"The largest segment accounts for {top_pct:.1f}% of the total {numeric_cols[0]}. This distribution helps identify dominant categories and areas requiring attention."
+                "insight": insight
             })
         
         # 4. Comparison Chart (Area)
@@ -896,7 +1638,12 @@ async def generate_auto_charts(dataset_id: str):
                     record[key] = serialize_for_json(record[key])
             
             corr = df[numeric_cols[:2]].corr().iloc[0, 1] if len(numeric_cols) >= 2 else 0
-            relationship = "strong positive" if corr > 0.7 else "moderate positive" if corr > 0.3 else "weak or negative"
+            
+            insight = await generate_chart_insight("area comparison", {
+                "data_points": len(chart_data),
+                "metrics": numeric_cols[:2],
+                "correlation": corr
+            })
             
             charts.append({
                 "type": "area",
@@ -905,7 +1652,7 @@ async def generate_auto_charts(dataset_id: str):
                 "data": chart_data,
                 "x_axis": all_cols[0],
                 "y_axis": numeric_cols[:2],
-                "insight": f"The analysis reveals a {relationship} relationship between these variables (correlation: {corr:.2f}). This suggests {'they move together' if corr > 0.5 else 'independent patterns' if corr > -0.5 else 'inverse relationship'}."
+                "insight": insight
             })
         
         # 5. Correlation Scatter Plot
@@ -917,6 +1664,12 @@ async def generate_auto_charts(dataset_id: str):
             
             corr = df[numeric_cols[:2]].corr().iloc[0, 1]
             
+            insight = await generate_chart_insight("scatter correlation", {
+                "data_points": len(scatter_data),
+                "metrics": numeric_cols[:2],
+                "correlation": corr
+            })
+            
             charts.append({
                 "type": "scatter",
                 "title": "Correlation Analysis",
@@ -924,14 +1677,14 @@ async def generate_auto_charts(dataset_id: str):
                 "data": scatter_data,
                 "x_axis": numeric_cols[0],
                 "y_axis": numeric_cols[1],
-                "insight": f"The scatter plot reveals a correlation coefficient of {corr:.3f}. {'Strong correlation indicates predictable patterns' if abs(corr) > 0.7 else 'Moderate correlation suggests some relationship' if abs(corr) > 0.3 else 'Low correlation indicates independent variables'}, useful for forecasting and decision-making."
+                "insight": insight
             })
         
         return {
             "dataset_id": dataset_id,
             "dataset_name": dataset['name'],
             "charts": charts,
-            "summary": f"Generated {len(charts)} predefined charts with insights for comprehensive data visualization."
+            "summary": f"Generated {len(charts)} AI-powered charts with actionable insights."
         }
         
     except Exception as e:
@@ -939,8 +1692,8 @@ async def generate_auto_charts(dataset_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/reports/{dataset_id}/pdf")
-async def generate_pdf_report(dataset_id: str):
-    """Generate comprehensive PDF report with executive summary, KPIs, visualizations, and recommendations"""
+async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_user)):
+    """Generate comprehensive PDF report with AI-powered insights"""
     try:
         # Fetch dataset
         dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
@@ -1003,11 +1756,13 @@ async def generate_pdf_report(dataset_id: str):
         # ============ COVER PAGE ============
         story.append(Spacer(1, 1.5*inch))
         story.append(Paragraph("DATA ANALYTICS REPORT", title_style))
+        story.append(Paragraph("<i>AI-Powered Insights & Prescriptive Analytics</i>", 
+            ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=14, textColor=colors.grey, alignment=TA_CENTER)))
         story.append(Spacer(1, 0.3*inch))
         
         cover_info = [
             ['Report Generated:', datetime.now(timezone.utc).strftime('%B %d, %Y at %H:%M UTC')],
-            ['Dataset Name:', dataset['name']],
+            ['Dataset Name:', dataset.get('title', dataset['name'])],
             ['Total Records:', f"{dataset['rows']:,}"],
             ['Data Dimensions:', f"{dataset['columns']} columns"],
         ]
@@ -1023,47 +1778,41 @@ async def generate_pdf_report(dataset_id: str):
         story.append(cover_table)
         story.append(Spacer(1, 0.5*inch))
         
-        watermark = Paragraph("<i>E1 Analytics - Data Intelligence Platform</i>", 
+        watermark = Paragraph("<i>E1 Analytics - AI-Powered Data Intelligence Platform</i>", 
             ParagraphStyle('Watermark', parent=styles['Normal'], fontSize=10, textColor=colors.grey, alignment=TA_CENTER))
         story.append(watermark)
         story.append(PageBreak())
         
-        # ============ EXECUTIVE SUMMARY ============
+        # ============ EXECUTIVE SUMMARY WITH AI ============
         story.append(Paragraph("1. EXECUTIVE SUMMARY", heading_style))
-        story.append(Paragraph("Actionable Overview", subheading_style))
+        story.append(Paragraph("AI-Generated Overview", subheading_style))
         
-        # Calculate key metrics for summary
+        # Calculate metrics
         total_rows = len(df)
         missing_pct = (df.isnull().sum().sum() / (total_rows * len(df.columns))) * 100
         
-        # Trend analysis for summary
-        if len(numeric_cols) > 0:
-            primary_col = numeric_cols[0]
-            values = df[primary_col].dropna().values[:100]
-            if len(values) > 1:
-                x = np.arange(len(values))
-                slope, _, r_value, _, _ = stats.linregress(x, values)
-                trend_direction = "upward" if slope > 0 else "downward"
-                trend_strength = "strong" if abs(r_value) > 0.7 else "moderate" if abs(r_value) > 0.3 else "weak"
-            else:
-                trend_direction = "stable"
-                trend_strength = "N/A"
-        else:
-            trend_direction = "N/A"
-            trend_strength = "N/A"
+        # Generate AI executive summary
+        ai_summary_prompt = f"""Generate an executive summary for this data analysis report:
+
+Dataset: {dataset.get('title', dataset['name'])}
+Total Records: {total_rows}
+Columns: {dataset['columns']}
+Missing Data: {missing_pct:.1f}%
+Numeric Columns: {len(numeric_cols)}
+
+Provide 3-4 key bullet points summarizing the data quality, notable patterns, and business implications."""
+
+        ai_exec_summary = await generate_ai_insight(ai_summary_prompt)
         
         exec_summary = f"""
-        This comprehensive analysis examines {total_rows:,} records across {len(df.columns)} dimensions. 
-        The dataset represents {dataset['name']} and has been processed to extract actionable insights.
+        <b>Dataset Overview:</b><br/>
+        This comprehensive analysis examines {total_rows:,} records across {len(df.columns)} dimensions 
+        from the dataset "{dataset.get('title', dataset['name'])}".
         
-        <b>Key Findings:</b><br/>
-        • Data Quality: {100-missing_pct:.1f}% complete with {missing_pct:.1f}% missing values requiring attention<br/>
-        • Primary Trend: {trend_strength.capitalize()} {trend_direction} trend detected in key metrics<br/>
-        • Business Impact: The data reveals {'growth opportunities' if trend_direction == 'upward' else 'areas requiring optimization'}<br/>
-        • Confidence Level: {'High' if missing_pct < 5 else 'Moderate' if missing_pct < 15 else 'Requires data quality improvement'}<br/>
+        <b>AI-Generated Insights:</b><br/>
+        {ai_exec_summary}
         
-        <b>Strategic Implications:</b><br/>
-        {'The positive trends indicate momentum that should be sustained through continued investment and monitoring.' if trend_direction == 'upward' else 'The current patterns suggest opportunities for strategic interventions to reverse declining metrics.' if trend_direction == 'downward' else 'Stable patterns provide a foundation for testing new initiatives.'}
+        <b>Data Quality Score:</b> {100-missing_pct:.1f}% complete
         """
         
         story.append(Paragraph(exec_summary, body_style))
@@ -1072,244 +1821,104 @@ async def generate_pdf_report(dataset_id: str):
         # ============ KEY PERFORMANCE INDICATORS ============
         story.append(Paragraph("2. KEY PERFORMANCE INDICATORS (KPIs)", heading_style))
         
-        kpi_data = [['KPI', 'Current Value', 'Benchmark', 'Status', 'Insight']]
+        kpi_data = [['KPI', 'Current Value', 'Benchmark', 'Status', 'AI Recommendation']]
         
         if len(numeric_cols) > 0:
             for col in numeric_cols[:4]:
                 mean_val = df[col].mean()
                 median_val = df[col].median()
-                std_val = df[col].std()
-                max_val = df[col].max()
-                
-                # Benchmark (using median as benchmark)
                 benchmark = median_val
                 variance = ((mean_val - benchmark) / benchmark * 100) if benchmark != 0 else 0
-                status = "✓ Above" if mean_val > benchmark else "✗ Below" if mean_val < benchmark else "= On Target"
+                status = "✓ Above" if mean_val > benchmark else "✗ Below"
                 
-                insight = f"{'Strong performance' if mean_val > benchmark else 'Needs improvement'}"
+                # Quick AI recommendation
+                rec = "Monitor" if abs(variance) < 10 else ("Optimize" if variance < 0 else "Leverage")
                 
                 kpi_data.append([
-                    col[:20],
+                    col[:15],
                     f"{mean_val:.2f}",
                     f"{benchmark:.2f}",
                     status,
-                    insight
+                    rec
                 ])
         
-        # Add data quality KPI
-        completeness = 100 - missing_pct
-        kpi_data.append([
-            'Data Completeness',
-            f"{completeness:.1f}%",
-            '95%',
-            "✓ Above" if completeness >= 95 else "✗ Below",
-            "Good" if completeness >= 95 else "Needs cleaning"
-        ])
-        
-        kpi_table = Table(kpi_data, colWidths=[1.5*inch, 1.2*inch, 1.2*inch, 1*inch, 1.6*inch])
+        kpi_table = Table(kpi_data, colWidths=[1.3*inch, 1.1*inch, 1.1*inch, 0.9*inch, 1.2*inch])
         kpi_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
         ]))
         story.append(kpi_table)
         story.append(Spacer(1, 0.3*inch))
         
-        # ============ DETAILED STATISTICS ============
-        story.append(Paragraph("3. DETAILED DESCRIPTIVE STATISTICS", heading_style))
+        # ============ ML-POWERED ANALYTICS ============
+        story.append(Paragraph("3. ML-POWERED ANALYTICS", heading_style))
         
-        if numeric_cols:
-            stats_data = [['Metric', 'Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Q1', 'Q3']]
-            for col in numeric_cols[:5]:
-                stats_data.append([
-                    col[:15],
-                    f"{df[col].mean():.2f}",
-                    f"{df[col].median():.2f}",
-                    f"{df[col].std():.2f}",
-                    f"{df[col].min():.2f}",
-                    f"{df[col].max():.2f}",
-                    f"{df[col].quantile(0.25):.2f}",
-                    f"{df[col].quantile(0.75):.2f}"
-                ])
-            
-            stats_table = Table(stats_data, colWidths=[1.3*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch])
-            stats_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10B981')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
-                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 8)
-            ]))
-            story.append(stats_table)
+        # Anomaly Detection
+        story.append(Paragraph("3.1 Anomaly Detection (Isolation Forest)", subheading_style))
         
-        story.append(PageBreak())
-        
-        # ============ DATA VISUALIZATIONS ============
-        story.append(Paragraph("4. DATA VISUALIZATIONS & INSIGHTS", heading_style))
-        
-        # Visualization 1: Trend Analysis
-        if len(numeric_cols) > 0:
-            story.append(Paragraph("4.1 Trend Analysis", subheading_style))
-            
-            col = numeric_cols[0]
-            values = df[col].dropna().values[:100]
-            if len(values) > 1:
-                x = np.arange(len(values))
-                slope, intercept, r_value, p_value, std_err = stats.linregress(x, values)
-                
-                trend_insight = f"""
-                <b>Key Findings:</b><br/>
-                • Trend Direction: {('Upward' if slope > 0 else 'Downward')} ({slope:.4f} per unit)<br/>
-                • Strength: R² = {r_value**2:.3f} ({'Strong' if abs(r_value) > 0.7 else 'Moderate' if abs(r_value) > 0.3 else 'Weak'} correlation)<br/>
-                • Statistical Significance: p-value = {p_value:.4f}<br/>
-                • Business Interpretation: {'Consistent growth pattern suggests positive momentum' if slope > 0 else 'Declining trend requires strategic intervention'}<br/>
-                """
-                story.append(Paragraph(trend_insight, body_style))
-                
-                try:
-                    fig, ax = plt.subplots(figsize=(7, 4))
-                    ax.plot(x, values, 'o-', label='Actual Data', color='#4F46E5', linewidth=2, markersize=4)
-                    ax.plot(x, slope * x + intercept, '--', label='Trend Line', color='#10B981', linewidth=2)
-                    ax.fill_between(x, values, alpha=0.3, color='#4F46E5')
-                    ax.set_xlabel('Time Period', fontsize=10)
-                    ax.set_ylabel(col, fontsize=10)
-                    ax.set_title(f'Trend Analysis: {col}', fontsize=12, fontweight='bold')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    chart_path = f"/tmp/trend_{dataset_id}.png"
-                    plt.savefig(chart_path, dpi=150, bbox_inches='tight')
-                    plt.close()
-                    
-                    img = Image(chart_path, width=6*inch, height=3.5*inch)
-                    story.append(img)
-                    story.append(Spacer(1, 0.2*inch))
-                except Exception as e:
-                    logger.error(f"Chart error: {e}")
-        
-        # Visualization 2: Distribution Analysis
-        if len(numeric_cols) >= 2:
-            story.append(Paragraph("4.2 Distribution & Comparison", subheading_style))
-            
-            corr = df[numeric_cols[:2]].corr().iloc[0, 1] if len(numeric_cols) >= 2 else 0
-            dist_insight = f"""
-            <b>Comparative Analysis:</b><br/>
-            • Correlation Coefficient: {corr:.3f}<br/>
-            • Relationship Type: {('Strong Positive' if corr > 0.7 else 'Moderate Positive' if corr > 0.3 else 'Weak/Negative')}<br/>
-            • Implication: {'Variables move together predictably' if abs(corr) > 0.5 else 'Variables show independent patterns'}<br/>
-            • Strategic Use: {'Can use one metric to predict the other' if abs(corr) > 0.6 else 'Monitor metrics independently'}<br/>
-            """
-            story.append(Paragraph(dist_insight, body_style))
-            
-            try:
-                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 3))
-                
-                # Histogram
-                ax1.hist(df[numeric_cols[0]].dropna(), bins=20, color='#4F46E5', alpha=0.7, edgecolor='black')
-                ax1.set_xlabel(numeric_cols[0], fontsize=9)
-                ax1.set_ylabel('Frequency', fontsize=9)
-                ax1.set_title('Distribution', fontsize=10, fontweight='bold')
-                ax1.grid(True, alpha=0.3)
-                
-                # Scatter plot
-                ax2.scatter(df[numeric_cols[0]], df[numeric_cols[1]], alpha=0.5, color='#10B981', s=30)
-                ax2.set_xlabel(numeric_cols[0], fontsize=9)
-                ax2.set_ylabel(numeric_cols[1], fontsize=9)
-                ax2.set_title('Correlation', fontsize=10, fontweight='bold')
-                ax2.grid(True, alpha=0.3)
-                
-                plt.tight_layout()
-                chart_path = f"/tmp/dist_{dataset_id}.png"
-                plt.savefig(chart_path, dpi=150, bbox_inches='tight')
-                plt.close()
-                
-                img = Image(chart_path, width=6*inch, height=2.5*inch)
-                story.append(img)
-            except Exception as e:
-                logger.error(f"Distribution chart error: {e}")
-        
-        story.append(PageBreak())
-        
-        # ============ ANOMALY DETECTION ============
-        story.append(Paragraph("5. ANOMALY DETECTION & OUTLIERS", heading_style))
-        
-        anomaly_added = False
         if len(numeric_cols) > 0:
             try:
-                X = df[numeric_cols[:3]].dropna()
+                X = df[numeric_cols[:5]].dropna()
                 if len(X) > 10:
                     clf = IsolationForest(contamination=0.1, random_state=42)
                     predictions = clf.fit_predict(X)
-                    anomalies = (predictions == -1).sum()
-                    anomaly_pct = (anomalies/len(X)*100)
+                    anomaly_count = (predictions == -1).sum()
+                    anomaly_pct = anomaly_count / len(X) * 100
                     
-                    anomaly_insight = f"""
-                    <b>Anomaly Detection Results:</b><br/>
-                    • Total Data Points Analyzed: {len(X):,}<br/>
-                    • Anomalies Detected: {anomalies} ({anomaly_pct:.2f}%)<br/>
-                    • Severity Assessment: {('Low - Normal variation' if anomaly_pct < 5 else 'Medium - Some outliers present' if anomaly_pct < 15 else 'High - Significant outliers detected')}<br/>
-                    • Data Quality Impact: {('Minimal - Data is reliable' if anomaly_pct < 5 else 'Moderate - Review flagged records' if anomaly_pct < 15 else 'Significant - Investigate data collection')}<br/>
-                    • Recommended Action: {('Continue monitoring' if anomaly_pct < 5 else 'Review anomalous records for patterns' if anomaly_pct < 15 else 'Conduct detailed investigation of outliers')}<br/>
+                    anomaly_text = f"""
+                    <b>Results:</b><br/>
+                    • Total Records Analyzed: {len(X):,}<br/>
+                    • Anomalies Detected: {anomaly_count} ({anomaly_pct:.1f}%)<br/>
+                    • Risk Level: {"HIGH" if anomaly_pct > 15 else "MEDIUM" if anomaly_pct > 5 else "LOW"}<br/>
+                    • Recommendation: {"Investigate flagged records immediately" if anomaly_pct > 15 else "Review anomalies during regular audit" if anomaly_pct > 5 else "Continue standard monitoring"}
                     """
-                    story.append(Paragraph(anomaly_insight, body_style))
-                    
-                    anomaly_data = [
-                        ['Metric', 'Value'],
-                        ['Total Records Analyzed', f"{len(X):,}"],
-                        ['Anomalies Detected', str(anomalies)],
-                        ['Anomaly Rate', f"{anomaly_pct:.2f}%"],
-                        ['Columns Analyzed', ', '.join(numeric_cols[:3])],
-                        ['Detection Method', 'Isolation Forest Algorithm']
-                    ]
-                    
-                    anomaly_table = Table(anomaly_data, colWidths=[2.5*inch, 3.5*inch])
-                    anomaly_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F59E0B')),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0, 0), (-1, 0), 11),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.Color(1, 0.95, 0.8)),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                        ('PADDING', (0, 0), (-1, -1), 8)
-                    ]))
-                    story.append(anomaly_table)
-                    anomaly_added = True
+                    story.append(Paragraph(anomaly_text, body_style))
                 else:
-                    # Not enough data for anomaly detection
-                    story.append(Paragraph(
-                        f"<b>Note:</b> Insufficient data points ({len(X)}) for reliable anomaly detection. Minimum 10 records required.",
-                        body_style
-                    ))
-                    anomaly_added = True
+                    story.append(Paragraph("Insufficient data for anomaly detection (minimum 10 records required).", body_style))
             except Exception as e:
                 logger.error(f"Anomaly detection error: {e}")
-                story.append(Paragraph(
-                    f"<b>Note:</b> Anomaly detection could not be performed due to data structure limitations. Error: {str(e)[:100]}",
-                    body_style
-                ))
-                anomaly_added = True
+                story.append(Paragraph(f"Anomaly detection unavailable: {str(e)[:100]}", body_style))
         
-        if not anomaly_added:
-            story.append(Paragraph(
-                "<b>Note:</b> No numeric columns available for anomaly detection analysis.",
-                body_style
-            ))
+        story.append(Spacer(1, 0.2*inch))
         
-        story.append(Spacer(1, 0.3*inch))
+        # Clustering Analysis
+        story.append(Paragraph("3.2 Data Segmentation (K-Means Clustering)", subheading_style))
+        
+        if len(numeric_cols) >= 2:
+            try:
+                X_cluster = df[numeric_cols[:4]].dropna()
+                if len(X_cluster) > 3:
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X_cluster)
+                    
+                    kmeans = KMeans(n_clusters=min(3, len(X_cluster)), random_state=42, n_init=10)
+                    clusters = kmeans.fit_predict(X_scaled)
+                    
+                    cluster_sizes = pd.Series(clusters).value_counts().sort_index()
+                    
+                    cluster_text = f"""
+                    <b>Segmentation Results:</b><br/>
+                    • Number of Segments: {len(cluster_sizes)}<br/>
+                    • Segment Sizes: {', '.join([f'Segment {i}: {s} ({s/len(clusters)*100:.1f}%)' for i, s in cluster_sizes.items()])}<br/>
+                    • Application: Use segments for targeted strategies and personalized approaches
+                    """
+                    story.append(Paragraph(cluster_text, body_style))
+            except Exception as e:
+                logger.error(f"Clustering error: {e}")
+                story.append(Paragraph("Clustering analysis unavailable.", body_style))
+        
+        story.append(PageBreak())
         
         # ============ PREDICTIVE FORECASTING ============
-        story.append(Paragraph("6. PREDICTIVE ANALYTICS & FORECASTING", heading_style))
+        story.append(Paragraph("4. PREDICTIVE FORECASTING", heading_style))
         
         if len(numeric_cols) > 0:
             col = numeric_cols[0]
@@ -1321,32 +1930,25 @@ async def generate_pdf_report(dataset_id: str):
                     fitted = model.fit()
                     forecast = fitted.forecast(steps=10)
                     
-                    avg_forecast = np.mean(forecast)
-                    forecast_trend = "increasing" if forecast[-1] > forecast[0] else "decreasing"
-                    
-                    forecast_insight = f"""
-                    <b>Forecast Analysis:</b><br/>
-                    • Forecasted Column: {col}<br/>
-                    • Historical Data Points: {len(values):,}<br/>
+                    forecast_text = f"""
+                    <b>Forecast for {col}:</b><br/>
+                    • Historical Data Points: {len(values)}<br/>
                     • Forecast Horizon: 10 periods<br/>
-                    • Predicted Average: {avg_forecast:.2f}<br/>
-                    • Forecast Trend: {forecast_trend.capitalize()}<br/>
-                    • Model Type: Exponential Smoothing<br/>
-                    • Confidence: {'High' if len(values) > 50 else 'Moderate' if len(values) > 20 else 'Low'} (based on {len(values)} data points)<br/>
-                    <br/>
-                    <b>Business Implications:</b><br/>
-                    {f'Expected growth of {((forecast[-1] - values[-1]) / values[-1] * 100):.1f}% over forecast period. ' if forecast_trend == 'increasing' else f'Expected decline of {((values[-1] - forecast[-1]) / values[-1] * 100):.1f}% over forecast period. '}
-                    {'Plan for increased capacity and resources.' if forecast_trend == 'increasing' else 'Prepare contingency plans and corrective measures.'}
+                    • Average Forecasted Value: {np.mean(forecast):.2f}<br/>
+                    • Trend Direction: {"Increasing" if forecast[-1] > forecast[0] else "Decreasing"}<br/>
+                    • Confidence: {"High" if len(values) > 50 else "Moderate"}
                     """
-                    story.append(Paragraph(forecast_insight, body_style))
+                    story.append(Paragraph(forecast_text, body_style))
                     
+                    # Create forecast chart
                     try:
-                        fig, ax = plt.subplots(figsize=(7, 4))
+                        fig, ax = plt.subplots(figsize=(7, 3.5))
                         historical = values[-30:]
-                        ax.plot(range(len(historical)), historical, 'o-', label='Historical', color='#4F46E5', linewidth=2)
-                        ax.plot(range(len(historical), len(historical) + len(forecast)), forecast, 's--', label='Forecast', color='#F59E0B', linewidth=2, markersize=6)
-                        ax.axvline(x=len(historical)-0.5, color='red', linestyle=':', linewidth=1, label='Forecast Start')
-                        ax.fill_between(range(len(historical), len(historical) + len(forecast)), forecast * 0.9, forecast * 1.1, alpha=0.2, color='#F59E0B', label='Confidence Band')
+                        ax.plot(range(len(historical)), historical, 'o-', label='Historical', color='#4F46E5', linewidth=2, markersize=4)
+                        ax.plot(range(len(historical), len(historical) + len(forecast)), forecast, 's--', label='Forecast', color='#F59E0B', linewidth=2, markersize=5)
+                        ax.axvline(x=len(historical)-0.5, color='red', linestyle=':', linewidth=1, alpha=0.7)
+                        ax.fill_between(range(len(historical), len(historical) + len(forecast)), 
+                                       forecast * 0.9, forecast * 1.1, alpha=0.2, color='#F59E0B')
                         ax.set_xlabel('Time Period', fontsize=10)
                         ax.set_ylabel(col, fontsize=10)
                         ax.set_title(f'Predictive Forecast: {col}', fontsize=12, fontweight='bold')
@@ -1356,451 +1958,65 @@ async def generate_pdf_report(dataset_id: str):
                         plt.savefig(forecast_chart_path, dpi=150, bbox_inches='tight')
                         plt.close()
                         
-                        img = Image(forecast_chart_path, width=6*inch, height=3.5*inch)
+                        img = Image(forecast_chart_path, width=6*inch, height=3*inch)
                         story.append(img)
                     except Exception as e:
                         logger.error(f"Forecast chart error: {e}")
+                        
                 except Exception as e:
                     logger.error(f"Forecasting error: {e}")
+                    story.append(Paragraph("Forecasting unavailable.", body_style))
+            else:
+                story.append(Paragraph("Insufficient data for forecasting (minimum 10 data points required).", body_style))
         
-        story.append(PageBreak())
-        
-        # ============ CONTEXT & BENCHMARKS ============
-        story.append(Paragraph("7. CONTEXT & PERFORMANCE BENCHMARKS", heading_style))
-        
-        benchmark_text = f"""
-        <b>Industry Context:</b><br/>
-        This analysis provides insights relative to standard analytical benchmarks and best practices.<br/>
-        <br/>
-        <b>Data Quality Benchmarks:</b><br/>
-        • Completeness Target: 95% or higher<br/>
-        • Your Score: {100-missing_pct:.1f}% {'✓ Exceeds' if (100-missing_pct) >= 95 else '✗ Below'} benchmark<br/>
-        • Industry Average: 92-96%<br/>
-        <br/>
-        <b>Statistical Reliability:</b><br/>
-        • Minimum Sample Size for Confidence: 30 records<br/>
-        • Your Dataset: {len(df):,} records {'✓' if len(df) >= 30 else '✗'}<br/>
-        • Confidence Level: {('High - Large sample enables robust analysis' if len(df) > 1000 else 'Good - Adequate sample size' if len(df) > 100 else 'Moderate - Consider expanding dataset')}<br/>
-        <br/>
-        <b>Variability Assessment:</b><br/>
-        """
-        
-        if len(numeric_cols) > 0:
-            avg_cv = np.mean([df[col].std() / df[col].mean() * 100 for col in numeric_cols if df[col].mean() != 0])
-            benchmark_text += f"""
-            • Average Coefficient of Variation: {avg_cv:.1f}%<br/>
-            • Interpretation: {('Low variability - Stable metrics' if avg_cv < 20 else 'Moderate variability - Some fluctuation' if avg_cv < 50 else 'High variability - Volatile metrics')}<br/>
-            • Benchmark Range: 15-35% for stable business metrics<br/>
-            """
-        
-        story.append(Paragraph(benchmark_text, body_style))
-        story.append(Spacer(1, 0.2*inch))
-        
-        # ============ ACTIONABLE RECOMMENDATIONS ============
-        story.append(Paragraph("8. ACTIONABLE RECOMMENDATIONS", heading_style))
-        
-        story.append(Paragraph("Strategic Priorities", subheading_style))
-        
-        recommendations = []
-        priority = 1
-        
-        # Data Quality Recommendations
-        if missing_pct > 5:
-            recommendations.append({
-                'priority': priority,
-                'category': 'Data Quality',
-                'action': 'Implement Data Cleaning Protocol',
-                'rationale': f'{missing_pct:.1f}% missing data detected, impacting analysis reliability',
-                'steps': '1. Identify sources of missing data\n2. Implement validation rules at data entry\n3. Establish regular data quality audits',
-                'impact': 'HIGH',
-                'timeframe': 'Immediate (1-2 weeks)'
-            })
-            priority += 1
-        
-        # Trend-based Recommendations
-        if len(numeric_cols) > 0 and 'trend_direction' in locals():
-            if trend_direction == 'upward':
-                recommendations.append({
-                    'priority': priority,
-                    'category': 'Growth Strategy',
-                    'action': 'Capitalize on Positive Momentum',
-                    'rationale': 'Strong upward trends present opportunity for acceleration',
-                    'steps': '1. Increase investment in high-performing areas\n2. Document success factors\n3. Expand winning strategies to other segments',
-                    'impact': 'MEDIUM-HIGH',
-                    'timeframe': 'Short-term (1-3 months)'
-                })
-                priority += 1
-            elif trend_direction == 'downward':
-                recommendations.append({
-                    'priority': priority,
-                    'category': 'Corrective Action',
-                    'action': 'Reverse Declining Trends',
-                    'rationale': 'Downward trends require immediate intervention',
-                    'steps': '1. Conduct root cause analysis\n2. Implement corrective measures\n3. Set up early warning indicators',
-                    'impact': 'HIGH',
-                    'timeframe': 'Urgent (1-4 weeks)'
-                })
-                priority += 1
-        
-        # Performance Monitoring
-        recommendations.append({
-            'priority': priority,
-            'category': 'Continuous Improvement',
-            'action': 'Establish Real-Time Monitoring Dashboard',
-            'rationale': 'Proactive monitoring prevents issues and identifies opportunities early',
-            'steps': '1. Define key metrics and thresholds\n2. Set up automated alerts\n3. Schedule weekly review meetings',
-            'impact': 'MEDIUM',
-            'timeframe': 'Medium-term (1-2 months)'
-        })
-        priority += 1
-        
-        # Advanced Analytics
-        if len(df) > 1000:
-            recommendations.append({
-                'priority': priority,
-                'category': 'Advanced Analytics',
-                'action': 'Implement Machine Learning Models',
-                'rationale': 'Large dataset enables sophisticated predictive modeling',
-                'steps': '1. Identify specific prediction targets\n2. Build and validate ML models\n3. Integrate predictions into decision-making',
-                'impact': 'MEDIUM-HIGH',
-                'timeframe': 'Long-term (3-6 months)'
-            })
-        
-        # Format recommendations
-        for rec in recommendations:
-            story.append(Paragraph(f"<b>Priority {rec['priority']}: {rec['action']}</b>", subheading_style))
-            
-            rec_text = f"""
-            <b>Category:</b> {rec['category']}<br/>
-            <b>Rationale:</b> {rec['rationale']}<br/>
-            <b>Action Steps:</b><br/>{rec['steps']}<br/>
-            <b>Expected Impact:</b> {rec['impact']}<br/>
-            <b>Timeframe:</b> {rec['timeframe']}<br/>
-            """
-            story.append(Paragraph(rec_text, body_style))
-            story.append(Spacer(1, 0.15*inch))
-        
-        story.append(PageBreak())
-        
-        # ============ CONCLUSION ============
-        story.append(Paragraph("9. CONCLUSION & NEXT STEPS", heading_style))
-        
-        conclusion_text = f"""
-        <b>Summary:</b><br/>
-        This comprehensive analysis of {dataset['name']} has revealed {('positive trends and growth opportunities' if trend_direction == 'upward' else 'areas requiring strategic attention' if trend_direction == 'downward' else 'stable patterns with optimization potential')}. 
-        The dataset comprising {len(df):,} records across {len(df.columns)} dimensions provides {'robust' if len(df) > 1000 else 'adequate'} statistical foundation for decision-making.
-        <br/><br/>
-        <b>Key Takeaways:</b><br/>
-        • Data quality is {('excellent' if missing_pct < 5 else 'good' if missing_pct < 10 else 'adequate')} with {100-missing_pct:.1f}% completeness<br/>
-        • {('Growth momentum should be sustained and accelerated' if trend_direction == 'upward' else 'Corrective actions should be prioritized' if trend_direction == 'downward' else 'Stable foundation enables strategic experimentation')}<br/>
-        • Predictive models show {('favorable' if forecast_trend == 'increasing' else 'concerning')} outlook for next period<br/>
-        • {len(recommendations)} actionable recommendations have been prioritized for implementation<br/>
-        <br/>
-        <b>Immediate Next Steps:</b><br/>
-        1. Review and prioritize recommendations with stakeholders<br/>
-        2. Assign ownership and resources for priority actions<br/>
-        3. Establish measurement framework to track progress<br/>
-        4. Schedule follow-up analysis in 30-60 days<br/>
-        """
-        story.append(Paragraph(conclusion_text, body_style))
-        story.append(Spacer(1, 0.5*inch))
-        
-        # Footer
-        footer_style = ParagraphStyle(
-            'Footer',
-            parent=styles['Normal'],
-            fontSize=9,
-            textColor=colors.grey,
-            alignment=TA_CENTER
-        )
-        story.append(Paragraph(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC", footer_style))
-        story.append(Paragraph("E1 Analytics - Data Intelligence Platform", footer_style))
-        story.append(Paragraph("For questions or additional analysis, contact your analytics team", footer_style))
-        
-        # Build PDF
-        doc.build(story)
-        
-        return FileResponse(pdf_filename, filename=f"comprehensive_analytics_report_{dataset['name']}.pdf", media_type="application/pdf")
-        
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-        # Fetch dataset
-        dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
-        if not dataset:
-            raise HTTPException(status_code=404, detail="Dataset not found")
-        
-        data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id}, {"_id": 0})
-        if not data_doc:
-            raise HTTPException(status_code=404, detail="Dataset data not found")
-        
-        df = pd.DataFrame(data_doc['data'])
-        
-        # Create PDF
-        pdf_filename = f"/tmp/report_{dataset_id}.pdf"
-        doc = SimpleDocTemplate(pdf_filename, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
-        story = []
-        styles = getSampleStyleSheet()
-        
-        # Custom styles
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#4F46E5'),
-            spaceAfter=12,
-            alignment=TA_CENTER
-        )
-        
-        heading_style = ParagraphStyle(
-            'CustomHeading',
-            parent=styles['Heading2'],
-            fontSize=16,
-            textColor=colors.HexColor('#0F172A'),
-            spaceAfter=10,
-            spaceBefore=15
-        )
-        
-        # Title
-        story.append(Paragraph("E1 Analytics - Comprehensive Data Report", title_style))
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Dataset Information
-        story.append(Paragraph("Dataset Overview", heading_style))
-        dataset_info = [
-            ['Property', 'Value'],
-            ['Dataset Name', dataset['name']],
-            ['Total Rows', str(dataset['rows'])],
-            ['Total Columns', str(dataset['columns'])],
-            ['Upload Date', str(dataset['uploaded_at'])[:19]],
-        ]
-        t = Table(dataset_info, colWidths=[2*inch, 4*inch])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey)
-        ]))
-        story.append(t)
         story.append(Spacer(1, 0.3*inch))
         
-        # Descriptive Statistics
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        # ============ AI-POWERED PRESCRIPTIVE ANALYTICS ============
+        story.append(Paragraph("5. PRESCRIPTIVE ANALYTICS", heading_style))
+        story.append(Paragraph("AI-Generated Strategic Recommendations", subheading_style))
         
-        if numeric_cols:
-            story.append(Paragraph("Descriptive Statistics", heading_style))
-            
-            stats_data = [['Column', 'Mean', 'Median', 'Std Dev', 'Min', 'Max']]
-            for col in numeric_cols[:5]:  # Limit to first 5 columns
-                stats_data.append([
-                    col,
-                    f"{df[col].mean():.2f}",
-                    f"{df[col].median():.2f}",
-                    f"{df[col].std():.2f}",
-                    f"{df[col].min():.2f}",
-                    f"{df[col].max():.2f}"
-                ])
-            
-            stats_table = Table(stats_data, colWidths=[1.5*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch])
-            stats_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
-                ('GRID', (0, 0), (-1, -1), 1, colors.grey)
-            ]))
-            story.append(stats_table)
-            story.append(Spacer(1, 0.3*inch))
+        # Generate comprehensive prescriptive analysis
+        prescriptive_prompt = f"""Based on this data analysis, provide 5 specific prescriptive recommendations:
+
+Dataset: {dataset.get('title', dataset['name'])}
+Records: {total_rows}
+Data Quality: {100-missing_pct:.1f}% complete
+Key Metrics: {numeric_cols[:5]}
+
+Provide actionable recommendations in format:
+1. [Category]: [Specific Action] - [Expected Outcome]"""
+
+        prescriptive_insights = await generate_ai_insight(prescriptive_prompt)
         
-        # Trend Analysis
-        if len(numeric_cols) > 0:
-            story.append(Paragraph("Trend Analysis", heading_style))
-            
-            col = numeric_cols[0]
-            values = df[col].dropna().values[:100]  # Limit to 100 points
-            if len(values) > 1:
-                x = np.arange(len(values))
-                slope, intercept, r_value, p_value, std_err = stats.linregress(x, values)
-                
-                trend_data = [
-                    ['Metric', 'Value'],
-                    ['Analyzed Column', col],
-                    ['Trend Direction', 'Increasing' if slope > 0 else 'Decreasing'],
-                    ['Slope', f"{slope:.4f}"],
-                    ['R-squared', f"{r_value**2:.4f}"],
-                    ['P-value', f"{p_value:.4f}"]
-                ]
-                
-                trend_table = Table(trend_data, colWidths=[2*inch, 4*inch])
-                trend_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10B981')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 11),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.grey)
-                ]))
-                story.append(trend_table)
-                story.append(Spacer(1, 0.3*inch))
-                
-                # Create trend chart
-                try:
-                    fig, ax = plt.subplots(figsize=(6, 3))
-                    ax.plot(x, values, 'o-', label='Actual', color='#4F46E5', linewidth=2)
-                    ax.plot(x, slope * x + intercept, '--', label='Trend', color='#10B981', linewidth=2)
-                    ax.set_xlabel('Index')
-                    ax.set_ylabel(col)
-                    ax.set_title(f'Trend Analysis - {col}')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    chart_path = f"/tmp/trend_{dataset_id}.png"
-                    plt.savefig(chart_path, dpi=100, bbox_inches='tight')
-                    plt.close()
-                    
-                    img = Image(chart_path, width=5*inch, height=2.5*inch)
-                    story.append(img)
-                    story.append(Spacer(1, 0.3*inch))
-                except Exception as e:
-                    logger.error(f"Chart error: {e}")
+        story.append(Paragraph("<b>AI-Generated Strategic Recommendations:</b>", body_style))
+        story.append(Paragraph(prescriptive_insights.replace('\n', '<br/>'), body_style))
+        story.append(Spacer(1, 0.3*inch))
         
-        # Anomaly Detection
-        if len(numeric_cols) > 0:
-            story.append(Paragraph("Anomaly Detection", heading_style))
-            
-            try:
-                X = df[numeric_cols[:3]].dropna()  # Use first 3 numeric columns
-                if len(X) > 10:
-                    clf = IsolationForest(contamination=0.1, random_state=42)
-                    predictions = clf.fit_predict(X)
-                    anomalies = (predictions == -1).sum()
-                    
-                    anomaly_data = [
-                        ['Metric', 'Value'],
-                        ['Total Records Analyzed', str(len(X))],
-                        ['Anomalies Detected', str(anomalies)],
-                        ['Anomaly Percentage', f"{(anomalies/len(X)*100):.2f}%"],
-                        ['Columns Analyzed', ', '.join(numeric_cols[:3])]
-                    ]
-                    
-                    anomaly_table = Table(anomaly_data, colWidths=[2.5*inch, 3.5*inch])
-                    anomaly_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F59E0B')),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0, 0), (-1, 0), 11),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.Color(1, 0.95, 0.8)),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.grey)
-                    ]))
-                    story.append(anomaly_table)
-                    story.append(Spacer(1, 0.3*inch))
-            except Exception as e:
-                logger.error(f"Anomaly detection error: {e}")
+        # Action Items Table
+        story.append(Paragraph("5.1 Priority Action Items", subheading_style))
         
-        # Predictive Analysis - Forecasting
-        if len(numeric_cols) > 0:
-            story.append(Paragraph("Predictive Analysis - Forecasting", heading_style))
-            
-            col = numeric_cols[0]
-            values = df[col].dropna().values
-            
-            if len(values) >= 10:
-                try:
-                    model = ExponentialSmoothing(values[-50:], trend='add', seasonal=None)
-                    fitted = model.fit()
-                    forecast = fitted.forecast(steps=10)
-                    
-                    forecast_data = [
-                        ['Metric', 'Value'],
-                        ['Forecasted Column', col],
-                        ['Historical Data Points', str(len(values))],
-                        ['Forecast Periods', '10'],
-                        ['Average Forecast Value', f"{np.mean(forecast):.2f}"],
-                        ['Forecast Trend', 'Increasing' if forecast[-1] > forecast[0] else 'Decreasing']
-                    ]
-                    
-                    forecast_table = Table(forecast_data, colWidths=[2.5*inch, 3.5*inch])
-                    forecast_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0, 0), (-1, 0), 11),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.grey)
-                    ]))
-                    story.append(forecast_table)
-                    story.append(Spacer(1, 0.3*inch))
-                    
-                    # Create forecast chart
-                    try:
-                        fig, ax = plt.subplots(figsize=(6, 3))
-                        historical = values[-30:]
-                        ax.plot(range(len(historical)), historical, 'o-', label='Historical', color='#4F46E5', linewidth=2)
-                        ax.plot(range(len(historical), len(historical) + len(forecast)), forecast, 's--', label='Forecast', color='#F59E0B', linewidth=2)
-                        ax.set_xlabel('Time Period')
-                        ax.set_ylabel(col)
-                        ax.set_title(f'Forecast - {col}')
-                        ax.legend()
-                        ax.grid(True, alpha=0.3)
-                        forecast_chart_path = f"/tmp/forecast_{dataset_id}.png"
-                        plt.savefig(forecast_chart_path, dpi=100, bbox_inches='tight')
-                        plt.close()
-                        
-                        img = Image(forecast_chart_path, width=5*inch, height=2.5*inch)
-                        story.append(img)
-                        story.append(Spacer(1, 0.3*inch))
-                    except Exception as e:
-                        logger.error(f"Forecast chart error: {e}")
-                except Exception as e:
-                    logger.error(f"Forecasting error: {e}")
+        action_data = [
+            ['Priority', 'Action Item', 'Owner', 'Timeline', 'Expected Impact'],
+            ['P0', 'Address data quality issues' if missing_pct > 5 else 'Maintain data quality', 'Data Team', 'Immediate', 'HIGH'],
+            ['P1', 'Investigate anomalies', 'Analytics', 'This Week', 'MEDIUM'],
+            ['P2', 'Optimize key metrics', 'Business', 'This Month', 'HIGH'],
+            ['P3', 'Build predictive models', 'Data Science', 'Next Quarter', 'HIGH'],
+        ]
         
-        # Prescriptive Analysis
-        story.append(Paragraph("Prescriptive Analysis & Recommendations", heading_style))
+        action_table = Table(action_data, colWidths=[0.6*inch, 2.2*inch, 1*inch, 1*inch, 1*inch])
+        action_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10B981')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('FONTSIZE', (0, 1), (-1, -1), 8)
+        ]))
+        story.append(action_table)
         
-        recommendations = []
-        
-        # Check data quality
-        missing_pct = (df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100
-        if missing_pct > 5:
-            recommendations.append(f"• Data Quality: {missing_pct:.1f}% missing values detected. Consider data cleaning to improve analysis accuracy.")
-        else:
-            recommendations.append("• Data Quality: Good data quality with minimal missing values.")
-        
-        # Check for trends
-        if len(numeric_cols) > 0:
-            col = numeric_cols[0]
-            values = df[col].dropna().values[:100]
-            if len(values) > 1:
-                x = np.arange(len(values))
-                slope, _, _, _, _ = stats.linregress(x, values)
-                if abs(slope) > 0.01:
-                    direction = "upward" if slope > 0 else "downward"
-                    recommendations.append(f"• Trend Alert: Strong {direction} trend detected in {col}. Monitor closely for business impact.")
-        
-        # Data volume recommendation
-        if len(df) < 100:
-            recommendations.append("• Data Volume: Limited data points. Consider collecting more data for robust predictive analysis.")
-        else:
-            recommendations.append(f"• Data Volume: Good sample size with {len(df)} records for reliable analysis.")
-        
-        # General recommendations
-        recommendations.append("• Regular Monitoring: Schedule periodic data refreshes to maintain up-to-date insights.")
-        recommendations.append("• Advanced Analytics: Consider implementing machine learning models for deeper insights.")
-        
-        for rec in recommendations:
-            story.append(Paragraph(rec, styles['Normal']))
-            story.append(Spacer(1, 0.1*inch))
-        
-        # Footer
+        # ============ FOOTER ============
         story.append(Spacer(1, 0.5*inch))
         footer_style = ParagraphStyle(
             'Footer',
@@ -1810,10 +2026,13 @@ async def generate_pdf_report(dataset_id: str):
             alignment=TA_CENTER
         )
         story.append(Paragraph(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC", footer_style))
-        story.append(Paragraph("E1 Analytics - Data Intelligence Platform", footer_style))
+        story.append(Paragraph("E1 Analytics - AI-Powered Data Intelligence Platform", footer_style))
         
         # Build PDF
         doc.build(story)
+        
+        if user:
+            await log_audit(user["id"], user["email"], "generate_pdf_report", "dataset", dataset_id)
         
         return FileResponse(pdf_filename, filename=f"analytics_report_{dataset['name']}.pdf", media_type="application/pdf")
         
@@ -1831,12 +2050,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
