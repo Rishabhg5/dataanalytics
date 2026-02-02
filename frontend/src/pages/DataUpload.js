@@ -12,6 +12,7 @@ export default function DataUpload() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [uploadMode, setUploadMode] = useState('file'); // file, api, mysql
+  const [datasetTitle, setDatasetTitle] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [mysqlConfig, setMysqlConfig] = useState({
     host: '',
@@ -37,9 +38,11 @@ export default function DataUpload() {
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
+    
+    const title = datasetTitle || file.name.split('.')[0];
 
     try {
-      const response = await axios.post(`${API}/datasets/upload`, formData, {
+      const response = await axios.post(`${API}/datasets/upload?title=${encodeURIComponent(title)}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       
@@ -167,7 +170,23 @@ export default function DataUpload() {
 
           {/* File Upload Mode */}
           {uploadMode === 'file' && (
-            <div
+            <>
+              {/* Dataset Title Input */}
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Dataset Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={datasetTitle}
+                  onChange={(e) => setDatasetTitle(e.target.value)}
+                  placeholder="e.g., Sales Q1 2024, Customer Database"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+                <p className="text-xs text-slate-500 mt-2">Give your dataset a meaningful title for easy identification</p>
+              </div>
+              
+              <div
               data-testid="upload-dropzone"
               onDrop={onDrop}
               onDragOver={onDragOver}
@@ -210,6 +229,7 @@ export default function DataUpload() {
                 </label>
               </div>
             </div>
+            </>
           )}
 
           {/* API Import Mode */}
@@ -379,14 +399,17 @@ export default function DataUpload() {
           <div className="flex gap-3">
             <button
               data-testid="view-data-btn"
-              onClick={() => navigate(`/preparation?dataset=${uploadedDataset.id}`)}
+              onClick={() => navigate(`/dataset/${uploadedDataset.id}/overview`)}
               className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 h-11 px-6 rounded-lg font-medium transition-all active:scale-95"
             >
-              Prepare Data
+              View Dataset Overview
             </button>
             <button
               data-testid="upload-another-btn"
-              onClick={() => setUploadedDataset(null)}
+              onClick={() => {
+                setUploadedDataset(null);
+                setDatasetTitle('');
+              }}
               className="flex-1 border border-slate-300 text-slate-700 hover:bg-slate-50 h-11 px-6 rounded-lg font-medium transition-all"
             >
               Upload Another

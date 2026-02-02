@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { FileDown, Trash2, Calendar, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,22 +8,56 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Reports() {
+  const { datasetId } = useParams(); // Get datasetId from URL if in dataset context
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchDatasets();
-  }, []);
+  }, [datasetId]);
 
   const fetchDatasets = async () => {
     try {
       const response = await axios.get(`${API}/datasets`);
-      setDatasets(response.data);
+      // If we're in a dataset context, filter to show only that dataset
+      if (datasetId) {
+        const filtered = response.data.filter(ds => ds.id === datasetId);
+        setDatasets(filtered);
+      } else {
+        // Show all datasets when accessed directly from sidebar
+        setDatasets(response.data);
+      }
     } catch (error) {
       console.error('Error fetching datasets:', error);
       toast.error('Failed to load datasets');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGeneratePDF = async (datasetId, datasetName) => {
+    try {
+      toast.info('Generating comprehensive PDF report...');
+      
+      const response = await axios.get(`${API}/reports/${datasetId}/pdf`, {
+        responseType: 'blob',
+      });
+      
+      // Download PDF
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analytics_report_${datasetName.replace(/\.[^/.]+$/, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('PDF report generated successfully');
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast.error('Failed to generate PDF report');
     }
   };
 
@@ -61,32 +96,6 @@ export default function Reports() {
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export dataset');
-    }
-  };
-
-  const handleGeneratePDF = async (datasetId, datasetName) => {
-    try {
-      toast.info('Generating comprehensive PDF report...');
-      
-      const response = await axios.get(`${API}/reports/${datasetId}/pdf`, {
-        responseType: 'blob',
-      });
-      
-      // Download PDF
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `analytics_report_${datasetName.replace(/\.[^/.]+$/, '')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
-      toast.success('PDF report generated successfully');
-    } catch (error) {
-      console.error('PDF generation error:', error);
-      toast.error('Failed to generate PDF report');
     }
   };
 
@@ -146,7 +155,9 @@ export default function Reports() {
           Reports & Export
         </h1>
         <p className="text-lg text-slate-600 leading-relaxed">
-          Manage your datasets and export data for external use.
+          {datasetId 
+            ? `Generate comprehensive PDF report and export data for ${datasets[0]?.title || 'this dataset'}.`
+            : 'Generate comprehensive PDF reports and export data for all your datasets.'}
         </p>
       </div>
 
@@ -189,7 +200,10 @@ export default function Reports() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <FileDown className="w-5 h-5 text-slate-400" />
-                        <span className="font-medium text-slate-900">{dataset.name}</span>
+                        <div>
+                          <span className="font-medium text-slate-900 block">{dataset.title || dataset.name}</span>
+                          <span className="text-xs text-slate-500">{dataset.name}</span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">

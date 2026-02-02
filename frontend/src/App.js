@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import DataUpload from './pages/DataUpload';
+import DatasetOverview from './pages/DatasetOverview';
 import DataPreparation from './pages/DataPreparation';
 import Analytics from './pages/Analytics';
 import Insights from './pages/Insights';
@@ -18,10 +19,21 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<Home />} />
             <Route path="upload" element={<DataUpload />} />
+            
+            {/* Direct navigation routes */}
             <Route path="preparation" element={<DataPreparation />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="insights" element={<Insights />} />
             <Route path="reports" element={<Reports />} />
+            
+            {/* Dataset-centric routes */}
+            <Route path="dataset/:datasetId" element={<DatasetOverview />}>
+              <Route path="overview" element={<div />} />
+              <Route path="preparation" element={<DataPreparation />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="insights" element={<Insights />} />
+              <Route path="reports" element={<Reports />} />
+            </Route>
           </Route>
         </Routes>
       </BrowserRouter>

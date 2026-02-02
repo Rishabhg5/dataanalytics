@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, AlertTriangle, Activity, ChevronRight } from 'lucide-react';
@@ -10,8 +10,9 @@ const API = `${BACKEND_URL}/api`;
 
 export default function Insights() {
   const [searchParams] = useSearchParams();
+  const { datasetId } = useParams();
   const navigate = useNavigate();
-  const datasetIdParam = searchParams.get('dataset');
+  const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');

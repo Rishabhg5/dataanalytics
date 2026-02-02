@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp, ChevronRight, Activity } from 'lucide-react';
@@ -20,11 +20,12 @@ const CHART_TYPES = [
 
 export default function Analytics() {
   const [searchParams] = useSearchParams();
+  const { datasetId } = useParams();
   const navigate = useNavigate();
-  const datasetId = searchParams.get('dataset');
+  const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
-  const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
+  const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');
   const [datasetData, setDatasetData] = useState(null);
   const [statistics, setStatistics] = useState(null);
   const [autoCharts, setAutoCharts] = useState(null);
