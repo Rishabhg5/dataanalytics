@@ -994,6 +994,7 @@ async def generate_pdf_report(dataset_id: str):
         # ============ ANOMALY DETECTION ============
         story.append(Paragraph("5. ANOMALY DETECTION & OUTLIERS", heading_style))
         
+        anomaly_added = False
         if len(numeric_cols) > 0:
             try:
                 X = df[numeric_cols[:3]].dropna()
@@ -1034,8 +1035,27 @@ async def generate_pdf_report(dataset_id: str):
                         ('PADDING', (0, 0), (-1, -1), 8)
                     ]))
                     story.append(anomaly_table)
+                    anomaly_added = True
+                else:
+                    # Not enough data for anomaly detection
+                    story.append(Paragraph(
+                        f"<b>Note:</b> Insufficient data points ({len(X)}) for reliable anomaly detection. Minimum 10 records required.",
+                        body_style
+                    ))
+                    anomaly_added = True
             except Exception as e:
                 logger.error(f"Anomaly detection error: {e}")
+                story.append(Paragraph(
+                    f"<b>Note:</b> Anomaly detection could not be performed due to data structure limitations. Error: {str(e)[:100]}",
+                    body_style
+                ))
+                anomaly_added = True
+        
+        if not anomaly_added:
+            story.append(Paragraph(
+                "<b>Note:</b> No numeric columns available for anomaly detection analysis.",
+                body_style
+            ))
         
         story.append(Spacer(1, 0.3*inch))
         

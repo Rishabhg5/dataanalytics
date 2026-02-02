@@ -16,6 +16,9 @@ export default function DataPreparation() {
   const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
   const [datasetData, setDatasetData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [showFullData, setShowFullData] = useState(false);
 
   useEffect(() => {
     fetchDatasets();
@@ -40,7 +43,8 @@ export default function DataPreparation() {
   const fetchDatasetData = async (id) => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API}/datasets/${id}?limit=100`);
+      const limit = showFullData ? 10000 : 1000;
+      const response = await axios.get(`${API}/datasets/${id}?limit=${limit}`);
       setDatasetData(response.data);
     } catch (error) {
       console.error('Error fetching dataset:', error);
@@ -49,6 +53,12 @@ export default function DataPreparation() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedDataset) {
+      fetchDatasetData(selectedDataset);
+    }
+  }, [selectedDataset, showFullData]);
 
   const handleCleanOperation = async (operation, column = null, parameters = null) => {
     if (!selectedDataset) return;
@@ -81,6 +91,21 @@ export default function DataPreparation() {
     } else {
       toast.error('Please select a dataset first');
     }
+  };
+
+  // Pagination logic
+  const totalPages = datasetData ? Math.ceil(datasetData.data.length / rowsPerPage) : 0;
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const currentData = datasetData ? datasetData.data.slice(startIndex, endIndex) : [];
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleRowsPerPageChange = (e) => {
+    setRowsPerPage(parseInt(e.target.value));
+    setCurrentPage(1);
   };
 
   return (
@@ -224,13 +249,36 @@ export default function DataPreparation() {
 
           {/* Data Preview */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
-              Data Preview ({datasetData.total_rows} rows total, showing first 100)
-            </h3>
-            <div className="overflow-x-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">
+                Data Preview ({datasetData.total_rows.toLocaleString()} rows total)
+              </h3>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowFullData(!showFullData)}
+                  data-testid="toggle-full-data"
+                  className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  {showFullData ? 'Show Sample' : 'Load All Data'}
+                </button>
+                <select
+                  value={rowsPerPage}
+                  onChange={handleRowsPerPageChange}
+                  className="h-9 rounded-lg border border-slate-300 px-3 text-sm"
+                >
+                  <option value={10}>10 per page</option>
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="overflow-x-auto mb-4">
               <table className="data-table w-full">
                 <thead>
                   <tr className="border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-slate-700 whitespace-nowrap">#</th>
                     {datasetData.dataset.column_names.map((col) => (
                       <th key={col} className="px-4 py-3 text-left text-slate-700 whitespace-nowrap">
                         {col}
@@ -239,8 +287,9 @@ export default function DataPreparation() {
                   </tr>
                 </thead>
                 <tbody>
-                  {datasetData.data.slice(0, 10).map((row, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
+                  {currentData.map((row, idx) => (
+                    <tr key={startIndex + idx} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-600 font-medium">{startIndex + idx + 1}</td>
                       {datasetData.dataset.column_names.map((col) => (
                         <td key={col} className="px-4 py-3 text-slate-900 whitespace-nowrap">
                           {row[col] !== null && row[col] !== undefined ? String(row[col]) : (
@@ -252,6 +301,60 @@ export default function DataPreparation() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+              <div className="text-sm text-slate-600">
+                Showing {startIndex + 1} to {Math.min(endIndex, datasetData.data.length)} of {datasetData.data.length.toLocaleString()} rows
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex gap-1">
+                  {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`w-8 h-8 text-sm rounded-lg ${
+                          currentPage === pageNum
+                            ? 'bg-indigo-600 text-white'
+                            : 'border border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
         </>
