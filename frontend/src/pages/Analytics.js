@@ -287,7 +287,15 @@ export default function Analytics() {
 
       {loading && (
         <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
           <p className="text-slate-600">Loading analytics...</p>
+        </div>
+      )}
+
+      {!loading && datasetData && !statistics && (
+        <div className="text-center py-12 bg-white border border-slate-200 rounded-xl">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mx-auto mb-3"></div>
+          <p className="text-slate-600">Loading statistics...</p>
         </div>
       )}
 
