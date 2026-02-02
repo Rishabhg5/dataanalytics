@@ -43,7 +43,8 @@ export default function DataPreparation() {
   const fetchDatasetData = async (id) => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API}/datasets/${id}?limit=100`);
+      const limit = showFullData ? 10000 : 1000;
+      const response = await axios.get(`${API}/datasets/${id}?limit=${limit}`);
       setDatasetData(response.data);
     } catch (error) {
       console.error('Error fetching dataset:', error);
@@ -52,6 +53,12 @@ export default function DataPreparation() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedDataset) {
+      fetchDatasetData(selectedDataset);
+    }
+  }, [selectedDataset, showFullData]);
 
   const handleCleanOperation = async (operation, column = null, parameters = null) => {
     if (!selectedDataset) return;
