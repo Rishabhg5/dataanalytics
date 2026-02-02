@@ -20,11 +20,12 @@ const CHART_TYPES = [
 
 export default function Analytics() {
   const [searchParams] = useSearchParams();
+  const { datasetId } = useParams();
   const navigate = useNavigate();
-  const datasetId = searchParams.get('dataset');
+  const datasetIdParam = datasetId || searchParams.get('dataset');
   
   const [datasets, setDatasets] = useState([]);
-  const [selectedDataset, setSelectedDataset] = useState(datasetId || '');
+  const [selectedDataset, setSelectedDataset] = useState(datasetIdParam || '');
   const [datasetData, setDatasetData] = useState(null);
   const [statistics, setStatistics] = useState(null);
   const [autoCharts, setAutoCharts] = useState(null);
