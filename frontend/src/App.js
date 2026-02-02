@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import DataUpload from './pages/DataUpload';
@@ -20,6 +20,12 @@ function App() {
             <Route index element={<Home />} />
             <Route path="upload" element={<DataUpload />} />
             
+            {/* Direct navigation routes */}
+            <Route path="preparation" element={<DataPreparation />} />
+            <Route path="analytics" element={<Analytics />} />
+            <Route path="insights" element={<Insights />} />
+            <Route path="reports" element={<Reports />} />
+            
             {/* Dataset-centric routes */}
             <Route path="dataset/:datasetId" element={<DatasetOverview />}>
               <Route path="overview" element={<div />} />
@@ -28,12 +34,6 @@ function App() {
               <Route path="insights" element={<Insights />} />
               <Route path="reports" element={<Reports />} />
             </Route>
-            
-            {/* Legacy routes - redirect to home */}
-            <Route path="preparation" element={<Navigate to="/" replace />} />
-            <Route path="analytics" element={<Navigate to="/" replace />} />
-            <Route path="insights" element={<Navigate to="/" replace />} />
-            <Route path="reports" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>
