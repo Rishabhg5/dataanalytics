@@ -19,7 +19,6 @@ distro==1.9.0
 dnspython==2.8.0
 ecdsa==0.19.1
 email-validator==2.3.0
-emergentintegrations==0.1.0
 et_xmlfile==2.0.0
 fastapi==0.110.1
 fastuuid==0.14.0
@@ -112,7 +111,7 @@ rpds-py==0.30.0
 rsa==4.9.1
 s3transfer==0.16.0
 s5cmd==0.2.0
-scikit-learn==1.8.0
+sklearn==1.8.0
 scipy==1.17.0
 shellingham==1.5.4
 six==1.17.0
