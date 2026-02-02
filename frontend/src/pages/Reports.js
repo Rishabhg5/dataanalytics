@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { FileDown, Trash2, Calendar, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,17 +8,25 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Reports() {
+  const { datasetId } = useParams(); // Get datasetId from URL if in dataset context
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchDatasets();
-  }, []);
+  }, [datasetId]);
 
   const fetchDatasets = async () => {
     try {
       const response = await axios.get(`${API}/datasets`);
-      setDatasets(response.data);
+      // If we're in a dataset context, filter to show only that dataset
+      if (datasetId) {
+        const filtered = response.data.filter(ds => ds.id === datasetId);
+        setDatasets(filtered);
+      } else {
+        // Show all datasets when accessed directly from sidebar
+        setDatasets(response.data);
+      }
     } catch (error) {
       console.error('Error fetching datasets:', error);
       toast.error('Failed to load datasets');
