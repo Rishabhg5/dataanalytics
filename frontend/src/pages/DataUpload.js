@@ -12,6 +12,7 @@ export default function DataUpload() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [uploadMode, setUploadMode] = useState('file'); // file, api, mysql
+  const [datasetTitle, setDatasetTitle] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [mysqlConfig, setMysqlConfig] = useState({
     host: '',
