@@ -397,14 +397,17 @@ export default function DataUpload() {
           <div className="flex gap-3">
             <button
               data-testid="view-data-btn"
-              onClick={() => navigate(`/preparation?dataset=${uploadedDataset.id}`)}
+              onClick={() => navigate(`/dataset/${uploadedDataset.id}/overview`)}
               className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 h-11 px-6 rounded-lg font-medium transition-all active:scale-95"
             >
-              Prepare Data
+              View Dataset Overview
             </button>
             <button
               data-testid="upload-another-btn"
-              onClick={() => setUploadedDataset(null)}
+              onClick={() => {
+                setUploadedDataset(null);
+                setDatasetTitle('');
+              }}
               className="flex-1 border border-slate-300 text-slate-700 hover:bg-slate-50 h-11 px-6 rounded-lg font-medium transition-all"
             >
               Upload Another
