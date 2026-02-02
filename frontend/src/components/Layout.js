@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useParams } from 'react-router-dom';
-import { LayoutDashboard, Upload, Database, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Upload, Database, Search, ChevronDown, ChevronRight, Wrench, BarChart3, Lightbulb, FileText } from 'lucide-react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
