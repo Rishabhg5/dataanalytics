@@ -45,12 +45,23 @@ class Dataset(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
+    title: str
     filename: str
     rows: int
     columns: int
     column_names: List[str]
     column_types: Dict[str, str]
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+class DatasetOverview(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    dataset_id: str
+    statistics: Optional[Dict[str, Any]] = None
+    auto_charts: Optional[Dict[str, Any]] = None
+    trends: Optional[Dict[str, Any]] = None
+    anomalies: Optional[Dict[str, Any]] = None
+    forecast: Optional[Dict[str, Any]] = None
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class DatasetCreate(BaseModel):
     name: str
