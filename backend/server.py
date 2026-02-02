@@ -293,6 +293,9 @@ async def get_datasets(search: Optional[str] = None):
     for ds in datasets:
         if isinstance(ds['uploaded_at'], str):
             ds['uploaded_at'] = datetime.fromisoformat(ds['uploaded_at'])
+        # Ensure title exists for backward compatibility
+        if 'title' not in ds or not ds['title']:
+            ds['title'] = ds['name'].split('.')[0]
     return datasets
 
 @api_router.put("/datasets/{dataset_id}/title")
