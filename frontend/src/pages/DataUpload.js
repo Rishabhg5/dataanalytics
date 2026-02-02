@@ -170,7 +170,23 @@ export default function DataUpload() {
 
           {/* File Upload Mode */}
           {uploadMode === 'file' && (
-            <div
+            <>
+              {/* Dataset Title Input */}
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Dataset Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={datasetTitle}
+                  onChange={(e) => setDatasetTitle(e.target.value)}
+                  placeholder="e.g., Sales Q1 2024, Customer Database"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+                <p className="text-xs text-slate-500 mt-2">Give your dataset a meaningful title for easy identification</p>
+              </div>
+              
+              <div
               data-testid="upload-dropzone"
               onDrop={onDrop}
               onDragOver={onDragOver}
