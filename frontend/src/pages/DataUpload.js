@@ -348,7 +348,7 @@ export default function DataUpload() {
               >
                 {uploading ? 'Importing...' : 'Import from MySQL'}
               </button>
-            </div>
+            </>
           )}
         </>
       ) : (
