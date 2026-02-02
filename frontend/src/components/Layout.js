@@ -1,19 +1,37 @@
-import React, { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Upload, Wrench, BarChart3, Lightbulb, FileText, Menu, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Outlet, Link, useLocation, useParams } from 'react-router-dom';
+import { LayoutDashboard, Upload, Database, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import axios from 'axios';
 
-const navItems = [
-  { path: '/', label: 'Overview', icon: LayoutDashboard },
-  { path: '/upload', label: 'Data Upload', icon: Upload },
-  { path: '/preparation', label: 'Data Prep', icon: Wrench },
-  { path: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/insights', label: 'Insights', icon: Lightbulb },
-  { path: '/reports', label: 'Reports', icon: FileText },
-];
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [datasets, setDatasets] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedDatasets, setExpandedDatasets] = useState(true);
+
+  useEffect(() => {
+    fetchDatasets();
+  }, []);
+
+  const fetchDatasets = async (search = '') => {
+    try {
+      const url = search ? `${API}/datasets?search=${encodeURIComponent(search)}` : `${API}/datasets`;
+      const response = await axios.get(url);
+      setDatasets(response.data);
+    } catch (error) {
+      console.error('Error fetching datasets:', error);
+    }
+  };
+
+  const handleSearch = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    fetchDatasets(query);
+  };
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -21,40 +39,99 @@ export default function Layout() {
       <aside
         className={`${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-200 lg:translate-x-0 lg:static`}
+        } fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 transition-transform duration-200 lg:translate-x-0 lg:static flex flex-col`}
       >
-        <div className="flex flex-col h-full">
-          <div className="p-6 border-b border-slate-200">
+        <div className="p-6 border-b border-slate-200">
+          <Link to="/" className="block">
             <h1 className="text-2xl font-bold text-slate-900">E1 Analytics</h1>
             <p className="text-sm text-slate-600 mt-1">Data Intelligence Platform</p>
+          </Link>
+        </div>
+        
+        {/* Main Navigation */}
+        <nav className="p-4 border-b border-slate-200">
+          <Link
+            to="/"
+            data-testid="nav-home"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg mb-2 ${
+              location.pathname === '/' ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Home</span>
+          </Link>
+          <Link
+            to="/upload"
+            data-testid="nav-upload"
+            className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg ${
+              location.pathname === '/upload' ? 'active' : 'text-slate-700'
+            }`}
+          >
+            <Upload className="w-5 h-5" strokeWidth={1.5} />
+            <span className="font-medium">Upload Data</span>
+          </Link>
+        </nav>
+
+        {/* Datasets Section */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="mb-3">
+            <button
+              onClick={() => setExpandedDatasets(!expandedDatasets)}
+              className="flex items-center gap-2 text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2 w-full hover:text-slate-900"
+            >
+              {expandedDatasets ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              <Database className="w-4 h-4" />
+              Datasets ({datasets.length})
+            </button>
+            
+            {expandedDatasets && (
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search datasets..."
+                    value={searchQuery}
+                    onChange={handleSearch}
+                    className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          
-          <nav className="flex-1 p-4 space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                  className={`sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg ${
-                    isActive ? 'active' : 'text-slate-700'
-                  }`}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <Icon className="w-5 h-5" strokeWidth={1.5} />
-                  <span className="font-medium">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-          
-          <div className="p-6 border-t border-slate-200">
-            <div className="bg-slate-100 rounded-lg p-4">
-              <p className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-1">Version</p>
-              <p className="text-sm text-slate-900">v1.0.0</p>
+
+          {expandedDatasets && (
+            <div className="space-y-1">
+              {datasets.length === 0 ? (
+                <p className="text-sm text-slate-500 px-4 py-2">No datasets found</p>
+              ) : (
+                datasets.map((dataset) => (
+                  <Link
+                    key={dataset.id}
+                    to={`/dataset/${dataset.id}/overview`}
+                    data-testid={`dataset-${dataset.id}`}
+                    className={`block px-4 py-2.5 rounded-lg hover:bg-slate-100 transition-colors ${
+                      location.pathname.includes(`/dataset/${dataset.id}`) ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600' : 'text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Database className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{dataset.title}</p>
+                        <p className="text-xs text-slate-500 truncate">{dataset.rows.toLocaleString()} rows</p>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              )}
             </div>
+          )}
+        </div>
+        
+        <div className="p-6 border-t border-slate-200">
+          <div className="bg-slate-100 rounded-lg p-4">
+            <p className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-1">Version</p>
+            <p className="text-sm text-slate-900">v1.0.0</p>
           </div>
         </div>
       </aside>
@@ -77,7 +154,7 @@ export default function Layout() {
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="lg:hidden p-2 rounded-lg hover:bg-slate-100 transition-colors"
             >
-              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              <LayoutDashboard className="w-6 h-6" />
             </button>
             <div className="flex-1" />
           </div>
