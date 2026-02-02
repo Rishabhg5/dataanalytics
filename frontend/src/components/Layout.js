@@ -127,15 +127,15 @@ export default function Layout() {
           <div className="mb-3">
             <button
               onClick={() => setExpandedDatasets(!expandedDatasets)}
-              className="flex items-center gap-2 text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2 w-full hover:text-slate-900"
+              className="flex items-center gap-2 text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3 w-full hover:text-slate-900"
             >
               {expandedDatasets ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               <Database className="w-4 h-4" />
-              Datasets ({datasets.length})
+              My Datasets ({datasets.length})
             </button>
             
             {expandedDatasets && (
-              <div className="mb-3">
+              <div className="mb-4">
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                   <input
@@ -151,24 +151,41 @@ export default function Layout() {
           </div>
 
           {expandedDatasets && (
-            <div className="space-y-1">
+            <div className="space-y-2">
               {datasets.length === 0 ? (
-                <p className="text-sm text-slate-500 px-4 py-2">No datasets found</p>
+                <div className="px-4 py-8 text-center">
+                  <Database className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">No datasets found</p>
+                  <Link
+                    to="/upload"
+                    className="inline-block mt-3 text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                  >
+                    Upload your first dataset
+                  </Link>
+                </div>
               ) : (
                 datasets.map((dataset) => (
                   <Link
                     key={dataset.id}
                     to={`/dataset/${dataset.id}/overview`}
                     data-testid={`dataset-${dataset.id}`}
-                    className={`block px-4 py-2.5 rounded-lg hover:bg-slate-100 transition-colors ${
-                      location.pathname.includes(`/dataset/${dataset.id}`) ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600' : 'text-slate-700'
+                    className={`block px-3 py-3 rounded-lg hover:bg-slate-100 transition-colors ${ 
+                      location.pathname.includes(`/dataset/${dataset.id}`) ? 'bg-indigo-50 border-l-4 border-indigo-600' : 'border-l-4 border-transparent'
                     }`}
                   >
-                    <div className="flex items-start gap-2">
-                      <Database className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-slate-100 rounded-lg flex-shrink-0">
+                        <Database className="w-4 h-4 text-slate-600" />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{dataset.title}</p>
-                        <p className="text-xs text-slate-500 truncate">{dataset.rows.toLocaleString()} rows</p>
+                        <p className="text-sm font-semibold text-slate-900 truncate mb-1">{dataset.title || dataset.name}</p>
+                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                            {dataset.rows.toLocaleString()} rows
+                          </span>
+                          <span>{dataset.columns} cols</span>
+                        </div>
                       </div>
                     </div>
                   </Link>
@@ -176,13 +193,6 @@ export default function Layout() {
               )}
             </div>
           )}
-        </div>
-        
-        <div className="p-6 border-t border-slate-200">
-          <div className="bg-slate-100 rounded-lg p-4">
-            <p className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-1">Version</p>
-            <p className="text-sm text-slate-900">v1.0.0</p>
-          </div>
         </div>
       </aside>
 
