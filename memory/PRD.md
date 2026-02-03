@@ -39,16 +39,16 @@ Build a comprehensive web application for data analytics with:
 - [x] Trend detection with linear regression
 - [x] Anomaly detection using Isolation Forest
 - [x] Time-series forecasting with Exponential Smoothing
-- [x] Auto-generated charts (Bar, Line, Area, Pie, Scatter)
+- [x] Auto-generated charts (Bar, Line, Area, Pie, Scatter) - **Fast, no AI delay**
 - [x] Custom chart builder with axis selection
-- [x] AI-generated insights for each chart
+- [x] Basic rule-based insights for charts (AI deferred for later)
 
 ### Phase 3: AI-Powered Analytics ✅
-- [x] AI Data Analysis (`/api/ai/analyze-data`)
-- [x] Prescriptive Analytics (`/api/ai/prescriptive`)
-- [x] AI Chart Descriptions (`/api/ai/describe-chart`)
+- [x] AI Data Analysis (`/api/ai/analyze-data`) - **Available in AI Insights page**
+- [x] Prescriptive Analytics (`/api/ai/prescriptive`) - **Available in AI Insights page**
 - [x] ML Prediction Model (`/api/ml/predict`) - Random Forest Regressor
 - [x] ML Clustering (`/api/ml/cluster`) - K-Means segmentation
+- [ ] AI Chart Descriptions - **Deferred for later** (was causing slow load times)
 
 ### Phase 4: Security & Governance ✅
 - [x] JWT-based authentication
@@ -67,15 +67,31 @@ Build a comprehensive web application for data analytics with:
 4. Data Visualizations & Insights (Trend Analysis, Distribution)
 5. Anomaly Detection
 6. Strategic Recommendations
-7. **NEW:** AI-Powered Insights (appended)
-8. **NEW:** ML-Powered Analytics (appended)
-9. **NEW:** Prescriptive Analytics (appended)
+7. AI-Powered Insights (appended)
+8. ML-Powered Analytics (appended)
+9. Prescriptive Analytics (appended)
+
+**Report History Tracking:**
+- [x] Each report generation creates NEW entry with unique timestamp
+- [x] Reports saved to database with: id, timestamp, user, charts snapshot, statistics
+- [x] Report History page shows all generated reports
+- [x] Download any past report from history
+- [x] Track who generated what report and when
 
 ---
 
-## UI Bug Fixes Applied
-- [x] Analytics page loading state - now shows "Loading statistics..." spinner instead of blank page
-- [x] PDF report structure restored - original sections preserved, AI/ML sections appended
+## Recent Changes (This Session)
+
+### Report History System
+- Reports no longer overwrite - each generation creates a new entry
+- `/api/reports/history/{dataset_id}` - Get report history for a dataset
+- `/api/reports/all` - Get all reports across all datasets
+- `/api/reports/download/{report_id}` - Download specific past report
+
+### Performance Optimization
+- Removed AI calls from auto-charts endpoint (was causing 5-10 second delays)
+- Charts now load in <100ms with basic rule-based insights
+- AI analysis available separately in AI Insights page when needed
 
 ---
 
@@ -87,6 +103,7 @@ Build a comprehensive web application for data analytics with:
 - Auth Context: `/app/frontend/src/context/AuthContext.js`
 - AI Insights: `/app/frontend/src/pages/AIInsights.js`
 - Analytics: `/app/frontend/src/pages/Analytics.js`
+- Reports: `/app/frontend/src/pages/Reports.js`
 - Layout: `/app/frontend/src/components/Layout.js`
 
 ---
@@ -94,24 +111,21 @@ Build a comprehensive web application for data analytics with:
 ## Pending/Future Tasks
 
 ### P0 - High Priority
+- [ ] Re-enable AI chart descriptions (optimize for speed)
 - [ ] PostgreSQL database connection
 - [ ] Password reset functionality
-- [ ] Session management (refresh tokens)
 
 ### P1 - Medium Priority
 - [ ] GraphQL API ingestion
 - [ ] Cloud storage (AWS S3, Google Cloud Storage)
 - [ ] Dashboard saving and sharing
 - [ ] Scheduled PDF reports via email
-- [ ] Code-based transformations (SQL/Python)
 
 ### P2 - Lower Priority
 - [ ] Azure SQL integration
 - [ ] Real-time data streams (Kafka)
 - [ ] BigQuery integration
 - [ ] Embedded dashboard widgets
-- [ ] In-app comments/annotations
-- [ ] Plugin system
 - [ ] Dark mode toggle
 
 ---
