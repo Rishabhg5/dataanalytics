@@ -103,3 +103,31 @@
 .border-l-3 {
   border-left-width: 3px;
 }
+
+/* Border left 3px utility */
+.border-l-3 {
+  border-left-width: 3px;
+}
+
+.border-b-3 {
+  border-bottom-width: 3px;
+}
+
+/* Custom scrollbar for column types */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
