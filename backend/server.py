@@ -2252,20 +2252,82 @@ Provide actionable recommendations in format:
             textColor=colors.grey,
             alignment=TA_CENTER
         )
-        story.append(Paragraph(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC", footer_style))
+        story.append(Paragraph(f"Report Generated: {timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC", footer_style))
+        story.append(Paragraph(f"Report ID: {report_id}", footer_style))
         story.append(Paragraph("E1 Analytics - AI-Powered Data Intelligence Platform", footer_style))
         
         # Build PDF
         doc.build(story)
         
-        if user:
-            await log_audit(user["id"], user["email"], "generate_pdf_report", "dataset", dataset_id)
+        # Save report to database for history tracking
+        report_record = GeneratedReport(
+            id=report_id,
+            dataset_id=dataset_id,
+            dataset_name=dataset.get('title', dataset['name']),
+            title=f"Analytics Report - {timestamp.strftime('%B %d, %Y %H:%M')}",
+            generated_at=timestamp,
+            generated_by=user["id"] if user else None,
+            generated_by_email=user["email"] if user else None,
+            pdf_filename=pdf_filename,
+            charts_included=charts_snapshot,
+            statistics_snapshot=statistics_snapshot
+        )
         
-        return FileResponse(pdf_filename, filename=f"analytics_report_{dataset['name']}.pdf", media_type="application/pdf")
+        report_doc = report_record.model_dump()
+        report_doc['generated_at'] = report_doc['generated_at'].isoformat()
+        await db.generated_reports.insert_one(report_doc)
+        
+        if user:
+            await log_audit(user["id"], user["email"], "generate_pdf_report", "report", report_id, 
+                          {"dataset_id": dataset_id, "filename": pdf_filename})
+        
+        # Return with timestamped filename
+        return FileResponse(
+            pdf_filename, 
+            filename=f"analytics_report_{dataset['name']}_{timestamp_str}.pdf", 
+            media_type="application/pdf"
+        )
         
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/reports/history/{dataset_id}")
+async def get_report_history(dataset_id: str, user: dict = Depends(get_current_user)):
+    """Get history of all generated reports for a dataset"""
+    reports = await db.generated_reports.find(
+        {"dataset_id": dataset_id}, 
+        {"_id": 0}
+    ).sort("generated_at", -1).to_list(100)
+    
+    return reports
+
+@api_router.get("/reports/all")
+async def get_all_reports(user: dict = Depends(get_current_user)):
+    """Get all generated reports across all datasets"""
+    reports = await db.generated_reports.find(
+        {}, 
+        {"_id": 0}
+    ).sort("generated_at", -1).to_list(100)
+    
+    return reports
+
+@api_router.get("/reports/download/{report_id}")
+async def download_report(report_id: str, user: dict = Depends(get_current_user)):
+    """Download a specific report by ID"""
+    report = await db.generated_reports.find_one({"id": report_id}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    pdf_path = report.get("pdf_filename")
+    if not pdf_path or not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="Report file not found on server")
+    
+    return FileResponse(
+        pdf_path,
+        filename=f"report_{report_id}.pdf",
+        media_type="application/pdf"
+    )
 
 # Include router
 app.include_router(api_router)
