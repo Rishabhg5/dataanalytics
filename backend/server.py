@@ -170,6 +170,20 @@ class AuditLog(BaseModel):
     ip_address: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class GeneratedReport(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dataset_id: str
+    dataset_name: str
+    title: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_by: Optional[str] = None
+    generated_by_email: Optional[str] = None
+    pdf_filename: str
+    charts_included: List[Dict[str, Any]] = []
+    statistics_snapshot: Optional[Dict[str, Any]] = None
+    insights_snapshot: Optional[Dict[str, Any]] = None
+
 class AIInsightRequest(BaseModel):
     dataset_id: str
     insight_type: str  # chart_description, data_analysis, prescriptive
