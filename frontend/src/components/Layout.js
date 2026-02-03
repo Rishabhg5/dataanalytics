@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Upload, Database, Search, ChevronDown, ChevronRight, 
   Wrench, BarChart3, Lightbulb, FileText, Users, ScrollText, LogOut, 
-  LogIn, Brain, Shield, Menu, X
+  LogIn, Brain, Shield, Menu, X, GitCommit // <--- 1. Imported GitCommit Icon
 } from 'lucide-react';
 import axios from 'axios';
 import logo from '../logo.png';
@@ -67,26 +67,26 @@ export default function Layout() {
         } fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 transition-transform duration-200 lg:translate-x-0 lg:static flex flex-col`}
       >
         {/* Header - Fixed */}
-<div className="p-5 border-b border-slate-200">
-  <Link to="/" className="flex items-center gap-3 group">
-    {/* Logo */}
-    <img
-      src={logo}
-      alt="E1 Analytics Logo"
-      className="w-10 h-10 rounded-lg object-contain"
-    />
+        <div className="p-5 border-b border-slate-200">
+          <Link to="/" className="flex items-center gap-3 group">
+            {/* Logo */}
+            <img
+              src={logo}
+              alt="E1 Analytics Logo"
+              className="w-10 h-10 rounded-lg object-contain"
+            />
 
-    {/* Text Container */}
-    <div className="flex flex-col">
-      <h1 className="text-xl font-bold text-slate-900 leading-tight">
-        Data Analytics
-      </h1>
-      <p className="text-xs text-slate-600">
-        Data Intelligence Platform
-      </p>
-    </div>
-  </Link>
-</div>
+            {/* Text Container */}
+            <div className="flex flex-col">
+              <h1 className="text-xl font-bold text-slate-900 leading-tight">
+                Data Analytics
+              </h1>
+              <p className="text-xs text-slate-600">
+                Data Intelligence Platform
+              </p>
+            </div>
+          </Link>
+        </div>
         
         {/* Scrollable Navigation Container */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -127,6 +127,20 @@ export default function Layout() {
               <Wrench className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
               <span className="font-medium text-xs">Data Prep</span>
             </Link>
+
+            {/* --- 2. ADDED COMPARISON LINK HERE --- */}
+            <Link
+              to="/comparison"
+              data-testid="nav-comparison"
+              className={`sidebar-link flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 transition-all ${
+                location.pathname === '/comparison' ? 'active' : 'text-slate-700'
+              }`}
+            >
+              <GitCommit className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+              <span className="font-medium text-xs">Comparison</span>
+            </Link>
+            {/* ------------------------------------ */}
+
             <Link
               to="/analytics"
               data-testid="nav-analytics"

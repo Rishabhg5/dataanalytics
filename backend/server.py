@@ -31,9 +31,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from passlib.context import CryptContext
+# OR if you want to use PyJWT directly:
 import jwt
+import bcrypt
 import hashlib
-import re
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -209,10 +211,33 @@ def serialize_for_json(obj):
     return obj
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+  
+    password_bytes = password.encode('utf-8')
+    
+    # If password is too long for bcrypt, pre-hash it with SHA-256
+    if len(password_bytes) > 72:
+        password_bytes = hashlib.sha256(password_bytes).digest()
+    
+    # Generate salt and hash
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """
+    Verify password against hash (Python 3.14 compatible)
+    Uses SHA-256 pre-hash for passwords > 72 bytes
+    """
+    try:
+        password_bytes = plain_password.encode('utf-8')
+        
+        # If password is too long for bcrypt, pre-hash it with SHA-256
+        if len(password_bytes) > 72:
+            password_bytes = hashlib.sha256(password_bytes).digest()
+        
+        return bcrypt.checkpw(password_bytes, hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
@@ -338,7 +363,10 @@ def generate_fallback_insight(prompt: str) -> str:
         return "Based on the analysis, focus on optimizing high-impact metrics while monitoring risk factors. Implement regular review cycles."
     return "Data analysis reveals patterns worth exploring further. Consider segmenting the data for deeper insights."
 
-# ===================== AUTH ROUTES =====================
+
+# ============================================
+# API ROUTES (SIMPLIFIED)
+# ============================================
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register_user(user_data: UserCreate):
@@ -350,7 +378,16 @@ async def register_user(user_data: UserCreate):
     
     # Validate role
     if user_data.role not in ROLE_HIERARCHY:
-        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {list(ROLE_HIERARCHY.keys())}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Must be one of: {list(ROLE_HIERARCHY.keys())}"
+        )
+    
+    # Hash password (now handles any length)
+    try:
+        password_hash = hash_password(user_data.password)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to process password")
     
     # Create user
     user_id = str(uuid.uuid4())
@@ -358,7 +395,7 @@ async def register_user(user_data: UserCreate):
         "id": user_id,
         "email": user_data.email,
         "name": user_data.name,
-        "password_hash": hash_password(user_data.password),
+        "password_hash": password_hash,
         "role": user_data.role,
         "is_active": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -371,7 +408,11 @@ async def register_user(user_data: UserCreate):
     await log_audit(user_id, user_data.email, "register", "user", user_id)
     
     # Generate token
-    access_token = create_access_token({"sub": user_id, "email": user_data.email, "role": user_data.role})
+    access_token = create_access_token({
+        "sub": user_id,
+        "email": user_data.email,
+        "role": user_data.role
+    })
     
     return TokenResponse(
         access_token=access_token,
@@ -385,11 +426,13 @@ async def register_user(user_data: UserCreate):
         )
     )
 
+
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login_user(credentials: UserLogin):
     """Login user and return JWT token"""
     user = await db.users.find_one({"email": credentials.email})
     
+    # Verify password (now handles any length)
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
@@ -400,7 +443,11 @@ async def login_user(credentials: UserLogin):
     await log_audit(user["id"], user["email"], "login", "auth")
     
     # Generate token
-    access_token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"]})
+    access_token = create_access_token({
+        "sub": user["id"],
+        "email": user["email"],
+        "role": user["role"]
+    })
     
     created_at = user.get("created_at")
     if isinstance(created_at, str):
@@ -417,6 +464,7 @@ async def login_user(credentials: UserLogin):
             is_active=user.get("is_active", True)
         )
     )
+
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_current_user_info(user: dict = Depends(require_auth)):
@@ -2330,7 +2378,9 @@ async def download_report(report_id: str, user: dict = Depends(get_current_user)
     )
 
 # Include router
+from comparison_router import router as comparison_router
 app.include_router(api_router)
+app.include_router(comparison_router)
 
 app.add_middleware(
     CORSMiddleware,
