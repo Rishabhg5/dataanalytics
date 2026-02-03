@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, ChevronRight, Activity } from 'lucide-react';
+import { TrendingUp, ChevronRight, Activity, Lightbulb } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -187,7 +187,7 @@ export default function Analytics() {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={false} // 1. Set to false to remove side labels
                 outerRadius={120}
                 fill="#8884d8"
                 dataKey="value"
@@ -197,6 +197,7 @@ export default function Analytics() {
                 ))}
               </Pie>
               <Tooltip />
+              <Legend /> {/* 2. Added Legend to show keys at the bottom */}
             </PieChart>
           </ResponsiveContainer>
         );
@@ -232,44 +233,23 @@ export default function Analytics() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto">
-      {/* Progress Indicator */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Upload</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Prepare</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-indigo-600 font-medium">
-            <span className="text-sm">Analytics</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Insights</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Reports</span>
-          </div>
+    <div className="max-w-7xl mx-auto space-y-8">
+      
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+            Analytics Dashboard
+          </h1>
+          <p className="text-slate-600 mt-1">
+            Explore your data with customizable visualizations and descriptive statistics.
+          </p>
         </div>
       </div>
 
-      <div className="mb-8">
-        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-4">
-          Analytics Dashboard
-        </h1>
-        <p className="text-lg text-slate-600 leading-relaxed">
-          Explore your data with customizable visualizations and descriptive statistics.
-        </p>
-      </div>
-
       {/* Dataset Selector */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-        <label className="block text-sm font-medium text-slate-700 mb-2">Select Dataset</label>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <label className="block text-sm font-semibold text-slate-700 mb-2">Select Dataset</label>
         <select
           data-testid="dataset-selector"
           value={selectedDataset}
@@ -302,7 +282,7 @@ export default function Analytics() {
       {!loading && datasetData && statistics && (
         <>
           {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {Object.keys(statistics).slice(0, 4).map((col, idx) => {
               const stat = statistics[col];
               return (
@@ -335,11 +315,11 @@ export default function Analytics() {
           </div>
 
           {/* Toggle Between Auto and Custom Charts */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex gap-3">
             <button
               onClick={() => setShowAutoCharts(true)}
               className={`flex-1 h-11 px-6 rounded-lg font-medium transition-all ${
-                showAutoCharts ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                showAutoCharts ? 'bg-indigo-600 text-white shadow-md' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
             >
               Predefined Charts with Insights
@@ -347,100 +327,105 @@ export default function Analytics() {
             <button
               onClick={() => setShowAutoCharts(false)}
               className={`flex-1 h-11 px-6 rounded-lg font-medium transition-all ${
-                !showAutoCharts ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                !showAutoCharts ? 'bg-indigo-600 text-white shadow-md' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
             >
               Custom Chart Builder
             </button>
           </div>
 
-          {/* Auto-Generated Charts with Insights */}
+          {/* Auto-Generated Charts with Insights - GRID LAYOUT UPDATE */}
           {showAutoCharts && autoCharts && (
-            <div className="space-y-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {autoCharts.charts.map((chart, idx) => (
-                <div key={idx} className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                <div key={idx} className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col">
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900 mb-1">{chart.title}</h3>
-                      <p className="text-sm text-slate-600">{chart.description}</p>
+                      <p className="text-sm text-slate-600 line-clamp-2">{chart.description}</p>
                     </div>
-                    <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full uppercase">
+                    <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full uppercase shrink-0 ml-2">
                       {chart.type}
                     </span>
                   </div>
                   
-                  <ResponsiveContainer width="100%" height={350}>
-                    {chart.type === 'bar' && (
-                      <BarChart data={chart.data}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                        <XAxis dataKey={chart.x_axis} stroke="#64748B" angle={-45} textAnchor="end" height={80} />
-                        <YAxis stroke="#64748B" />
-                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
-                        <Legend />
-                        {chart.y_axis.map((col, i) => (
-                          <Bar key={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </BarChart>
-                    )}
-                    {chart.type === 'line' && (
-                      <LineChart data={chart.data}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                        <XAxis dataKey={chart.x_axis} stroke="#64748B" />
-                        <YAxis stroke="#64748B" />
-                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
-                        <Legend />
-                        {chart.y_axis.map((col, i) => (
-                          <Line key={col} type="monotone" dataKey={col} stroke={COLORS[i % COLORS.length]} strokeWidth={2} />
-                        ))}
-                      </LineChart>
-                    )}
-                    {chart.type === 'area' && (
-                      <AreaChart data={chart.data}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                        <XAxis dataKey={chart.x_axis} stroke="#64748B" />
-                        <YAxis stroke="#64748B" />
-                        <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
-                        <Legend />
-                        {chart.y_axis.map((col, i) => (
-                          <Area key={col} type="monotone" dataKey={col} fill={COLORS[i % COLORS.length]} stroke={COLORS[i % COLORS.length]} fillOpacity={0.6} />
-                        ))}
-                      </AreaChart>
-                    )}
-                    {chart.type === 'pie' && (
-                      <PieChart>
-                        <Pie
-                          data={chart.data}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, value }) => `${name}: ${value}`}
-                          outerRadius={120}
-                          dataKey={chart.value_column}
-                          nameKey={chart.label_column}
-                        >
-                          {chart.data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  <div className="flex-1 min-h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {chart.type === 'bar' && (
+                        <BarChart data={chart.data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey={chart.x_axis} stroke="#64748B" angle={-45} textAnchor="end" height={80} />
+                          <YAxis stroke="#64748B" />
+                          <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                          <Legend />
+                          {chart.y_axis.map((col, i) => (
+                            <Bar key={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
                           ))}
-                        </Pie>
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    )}
-                    {chart.type === 'scatter' && (
-                      <ScatterChart>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                        <XAxis type="number" dataKey={chart.x_axis} name={chart.x_axis} stroke="#64748B" />
-                        <YAxis type="number" dataKey={chart.y_axis} name={chart.y_axis} stroke="#64748B" />
-                        <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                        <Legend />
-                        <Scatter name="Data Points" data={chart.data} fill="#4F46E5" />
-                      </ScatterChart>
-                    )}
-                  </ResponsiveContainer>
+                        </BarChart>
+                      )}
+                      {chart.type === 'line' && (
+                        <LineChart data={chart.data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey={chart.x_axis} stroke="#64748B" />
+                          <YAxis stroke="#64748B" />
+                          <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                          <Legend />
+                          {chart.y_axis.map((col, i) => (
+                            <Line key={col} type="monotone" dataKey={col} stroke={COLORS[i % COLORS.length]} strokeWidth={2} />
+                          ))}
+                        </LineChart>
+                      )}
+                      {chart.type === 'area' && (
+                        <AreaChart data={chart.data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey={chart.x_axis} stroke="#64748B" />
+                          <YAxis stroke="#64748B" />
+                          <Tooltip contentStyle={{ backgroundColor: '#FFF', border: '1px solid #E2E8F0', borderRadius: '8px' }} />
+                          <Legend />
+                          {chart.y_axis.map((col, i) => (
+                            <Area key={col} type="monotone" dataKey={col} fill={COLORS[i % COLORS.length]} stroke={COLORS[i % COLORS.length]} fillOpacity={0.6} />
+                          ))}
+                        </AreaChart>
+                      )}
+                      {chart.type === 'pie' && (
+                        <PieChart>
+                          <Pie
+                            data={chart.data}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, value }) => `${name}: ${value}`}
+                            outerRadius={80}
+                            dataKey={chart.value_column}
+                            nameKey={chart.label_column}
+                          >
+                            {chart.data.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      )}
+                      {chart.type === 'scatter' && (
+                        <ScatterChart>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis type="number" dataKey={chart.x_axis} name={chart.x_axis} stroke="#64748B" />
+                          <YAxis type="number" dataKey={chart.y_axis} name={chart.y_axis} stroke="#64748B" />
+                          <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                          <Legend />
+                          <Scatter name="Data Points" data={chart.data} fill="#4F46E5" />
+                        </ScatterChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
                   
-                  <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-                    <p className="text-sm font-medium text-indigo-900 mb-1">💡 Insight:</p>
-                    <p className="text-sm text-indigo-800">{chart.insight}</p>
+                  <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100 flex gap-3 items-start">
+                    <Lightbulb className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-sm font-bold text-indigo-900 mb-1">Insight</p>
+                        <p className="text-sm text-indigo-800 leading-relaxed">{chart.insight}</p>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -451,7 +436,7 @@ export default function Analytics() {
           {!showAutoCharts && (
             <>
               {/* Chart Customization */}
-              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-slate-900 mb-4">Customize Your Visualization</h3>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -506,7 +491,7 @@ export default function Analytics() {
               </div>
 
               {/* Dynamic Chart */}
-              <div data-testid="custom-chart" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+              <div data-testid="custom-chart" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-slate-900 mb-4">
                   {CHART_TYPES.find(t => t.value === selectedChartType)?.label || 'Chart'}
                 </h3>
@@ -516,24 +501,26 @@ export default function Analytics() {
           )}
 
           {/* Detailed Statistics Table */}
-          <div data-testid="stats-table" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Detailed Statistics</h3>
+          <div data-testid="stats-table" className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-200 bg-slate-50/50">
+                <h3 className="text-lg font-semibold text-slate-900">Detailed Statistics</h3>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="px-3 py-2 text-left text-slate-700 font-medium">Metric</th>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Metric</th>
                     {Object.keys(statistics).slice(0, 5).map(col => (
-                      <th key={col} className="px-3 py-2 text-right text-slate-700 font-medium">{col}</th>
+                      <th key={col} className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">{col}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100">
                   {['mean', 'median', 'std', 'min', 'max', 'q25', 'q75'].map(metric => (
-                    <tr key={metric} className="border-b border-slate-100">
-                      <td className="px-3 py-2 text-slate-600 capitalize">{metric === 'std' ? 'Std Dev' : metric}</td>
+                    <tr key={metric} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 font-medium text-slate-700 capitalize border-r border-slate-50">{metric === 'std' ? 'Std Dev' : metric}</td>
                       {Object.keys(statistics).slice(0, 5).map(col => (
-                        <td key={col} className="px-3 py-2 text-right text-slate-900 font-medium">
+                        <td key={col} className="px-6 py-4 text-right text-slate-600 font-mono">
                           {statistics[col][metric]?.toFixed(2) || 'N/A'}
                         </td>
                       ))}
@@ -545,11 +532,11 @@ export default function Analytics() {
           </div>
 
           {/* Next Step Button */}
-          <div className="flex justify-end">
+          <div className="flex justify-end pb-8">
             <button
               data-testid="proceed-to-insights-btn"
               onClick={handleProceedToInsights}
-              className="flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+              className="flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all shadow-lg shadow-indigo-200 active:scale-95"
             >
               Proceed to Insights
               <ChevronRight className="w-5 h-5" />
