@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { FileDown, Trash2, Calendar, ChevronRight, Clock, History, Download } from 'lucide-react';
+import { FileDown, Trash2, Calendar, ChevronRight, Clock, History, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -12,7 +12,7 @@ export default function Reports() {
   const [datasets, setDatasets] = useState([]);
   const [reportHistory, setReportHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showHistory, setShowHistory] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(null);
 
   useEffect(() => {
     fetchDatasets();
@@ -49,23 +49,22 @@ export default function Reports() {
   };
 
   const handleGeneratePDF = async (dsId, datasetName) => {
+    setGeneratingPdf(dsId);
     try {
       toast.info('Generating comprehensive PDF report...');
       
-      const response = await axios.get(`${API}/reports/${dsId}/pdf`, {
-        responseType: 'blob',
-      });
+      // Use fetch API for better blob handling
+      const response = await fetch(`${API}/reports/${dsId}/pdf`);
       
-      // Get filename from content-disposition header or generate one
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = `analytics_report_${datasetName.replace(/\.[^/.]+$/, '')}_${new Date().toISOString().slice(0,10)}.pdf`;
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="?(.+)"?/);
-        if (match) filename = match[1];
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
       }
       
+      const blob = await response.blob();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `analytics_report_${datasetName.replace(/\.[^/.]+$/, '')}_${timestamp}.pdf`;
+      
       // Download PDF
-      const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -80,16 +79,20 @@ export default function Reports() {
     } catch (error) {
       console.error('PDF generation error:', error);
       toast.error('Failed to generate PDF report');
+    } finally {
+      setGeneratingPdf(null);
     }
   };
 
   const handleDownloadReport = async (reportId) => {
     try {
-      const response = await axios.get(`${API}/reports/download/${reportId}`, {
-        responseType: 'blob',
-      });
+      const response = await fetch(`${API}/reports/download/${reportId}`);
       
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      if (!response.ok) {
+        throw new Error('Report file not found');
+      }
+      
+      const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -166,6 +169,9 @@ export default function Reports() {
     });
   };
 
+  // If we're in a dataset context, show a different layout
+  const isDatasetContext = !!datasetId;
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Progress Indicator */}
@@ -195,118 +201,138 @@ export default function Reports() {
 
       <div className="mb-8">
         <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-4">
-          Reports & Export
+          {isDatasetContext ? 'Dataset Reports' : 'Reports & Export'}
         </h1>
         <p className="text-lg text-slate-600 leading-relaxed">
-          {datasetId 
+          {isDatasetContext 
             ? `Generate and track PDF reports for ${datasets[0]?.title || 'this dataset'}.`
             : 'Generate comprehensive PDF reports and track report history over time.'}
         </p>
       </div>
 
-      {/* Toggle Buttons */}
-      <div className="flex gap-3 mb-6">
-        <button
-          onClick={() => setShowHistory(false)}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            !showHistory 
-              ? 'bg-indigo-600 text-white' 
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          }`}
-        >
-          Generate Reports
-        </button>
-        <button
-          onClick={() => setShowHistory(true)}
-          data-testid="report-history-btn"
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-            showHistory 
-              ? 'bg-indigo-600 text-white' 
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          Report History ({reportHistory.length})
-        </button>
-      </div>
-
-      {/* Report History View */}
-      {showHistory ? (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          {reportHistory.length === 0 ? (
-            <div className="p-12 text-center">
-              <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">No reports generated yet</h3>
-              <p className="text-slate-600">Generate your first PDF report to see it here.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-6 py-4 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Report</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Dataset</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Generated</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Generated By</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Charts</th>
-                    <th className="px-6 py-4 text-right text-xs font-medium text-slate-700 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {reportHistory.map((report) => (
-                    <tr key={report.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <FileDown className="w-5 h-5 text-purple-500" />
-                          <div>
-                            <span className="font-medium text-slate-900 block">{report.title}</span>
-                            <span className="text-xs text-slate-500 font-mono">{report.id.substring(0, 8)}...</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {report.dataset_name}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4" />
-                          {formatDate(report.generated_at)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {report.generated_by_email || 'Anonymous'}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-medium">
-                          {report.charts_included?.length || 0} charts
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end">
-                          <button
-                            onClick={() => handleDownloadReport(report.id)}
-                            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
-                          >
-                            <Download className="w-4 h-4" />
-                            Download
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading...</p>
+        </div>
+      ) : isDatasetContext ? (
+        /* Dataset-specific view - shows generate button and history together */
+        <>
+          {datasets.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">{datasets[0].title || datasets[0].name}</h3>
+                  <p className="text-sm text-slate-600">{datasets[0].rows.toLocaleString()} rows • {datasets[0].columns} columns</p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    data-testid="generate-pdf-btn"
+                    onClick={() => handleGeneratePDF(datasets[0].id, datasets[0].name)}
+                    disabled={generatingPdf === datasets[0].id}
+                    className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {generatingPdf === datasets[0].id ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileDown className="w-5 h-5" />
+                        Generate PDF Report
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleExportCSV(datasets[0].id, datasets[0].name)}
+                    className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2"
+                  >
+                    <FileDown className="w-5 h-5" />
+                    Export CSV
+                  </button>
+                </div>
+              </div>
             </div>
           )}
-        </div>
-      ) : (
-        /* Generate Reports View */
-        <>
-          {loading ? (
-            <div className="text-center py-12">
-              <p className="text-slate-600">Loading datasets...</p>
+
+          {/* Report History for this dataset */}
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-slate-600" />
+                <h3 className="font-semibold text-slate-900">Report History ({reportHistory.length})</h3>
+              </div>
+              <p className="text-sm text-slate-600 mt-1">Track all generated reports for this dataset</p>
             </div>
-          ) : datasets.length === 0 ? (
+            
+            {reportHistory.length === 0 ? (
+              <div className="p-12 text-center">
+                <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-900 mb-2">No reports generated yet</h3>
+                <p className="text-slate-600">Click "Generate PDF Report" above to create your first report.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Report</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Generated</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Generated By</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Charts</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-slate-700 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {reportHistory.map((report) => (
+                      <tr key={report.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <FileDown className="w-5 h-5 text-purple-500" />
+                            <div>
+                              <span className="font-medium text-slate-900 block">{report.title}</span>
+                              <span className="text-xs text-slate-500 font-mono">{report.id.substring(0, 8)}...</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            {formatDate(report.generated_at)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {report.generated_by_email || 'Anonymous'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-medium">
+                            {report.charts_included?.length || 0} charts
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end">
+                            <button
+                              onClick={() => handleDownloadReport(report.id)}
+                              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                            >
+                              <Download className="w-4 h-4" />
+                              Download
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Global reports view - shows all datasets */
+        <>
+          {datasets.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-12 text-center">
               <FileDown className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No datasets yet</h3>
@@ -364,9 +390,14 @@ export default function Reports() {
                             <button
                               data-testid={`pdf-btn-${dataset.id}`}
                               onClick={() => handleGeneratePDF(dataset.id, dataset.name)}
-                              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium flex items-center gap-2"
+                              disabled={generatingPdf === dataset.id}
+                              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50"
                             >
-                              <FileDown className="w-4 h-4" />
+                              {generatingPdf === dataset.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <FileDown className="w-4 h-4" />
+                              )}
                               Generate PDF
                             </button>
                             <button
@@ -386,6 +417,52 @@ export default function Reports() {
                               Delete
                             </button>
                           </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* All Reports History */}
+          {reportHistory.length > 0 && (
+            <div className="mt-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-slate-600" />
+                  <h3 className="font-semibold text-slate-900">All Report History ({reportHistory.length})</h3>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Report</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Dataset</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Generated</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-slate-700 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {reportHistory.slice(0, 10).map((report) => (
+                      <tr key={report.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <FileDown className="w-5 h-5 text-purple-500" />
+                            <span className="font-medium text-slate-900">{report.title}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{report.dataset_name}</td>
+                        <td className="px-6 py-4 text-slate-600">{formatDate(report.generated_at)}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleDownloadReport(report.id)}
+                            className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+                          >
+                            Download
+                          </button>
                         </td>
                       </tr>
                     ))}
