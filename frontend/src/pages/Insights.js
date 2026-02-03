@@ -145,7 +145,7 @@ export default function Insights() {
 
   const handleProceedToReports = () => {
     if (selectedDataset) {
-      navigate('/reports');
+      navigate(`/dataset/${selectedDataset}/reports`);
     } else {
       toast.error('Please select a dataset first');
     }
@@ -154,29 +154,7 @@ export default function Insights() {
   return (
     <div className="max-w-7xl mx-auto">
       {/* Progress Indicator */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Upload</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Prepare</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Analytics</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-indigo-600 font-medium">
-            <span className="text-sm">Insights</span>
-            <ChevronRight className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2 text-slate-400">
-            <span className="text-sm">Reports</span>
-          </div>
-        </div>
-      </div>
+      
       <div className="mb-8">
         <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-4">
           Advanced Insights
@@ -373,14 +351,14 @@ export default function Insights() {
             AI-Powered Analysis
             <Sparkles className="w-4 h-4" />
           </Link>
-          <button
-            data-testid="proceed-to-reports-btn"
-            onClick={handleProceedToReports}
-            className="flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
-          >
-            Proceed to Reports
-            <ChevronRight className="w-5 h-5" />
-          </button>
+ <button
+  data-testid="proceed-to-reports-btn"
+  onClick={() => window.location.href = `/dataset/${datasetIdParam}/reports`}  // Add the path directly here
+  className="flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 h-12 px-8 rounded-lg font-medium transition-all active:scale-95"
+>
+  Proceed to Reports
+  <ChevronRight className="w-5 h-5" /> {/* Chevron icon */}
+</button>
         </div>
       )}
     </div>
