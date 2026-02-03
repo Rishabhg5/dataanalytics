@@ -1520,7 +1520,7 @@ async def delete_dataset(dataset_id: str, user: dict = Depends(get_current_user)
 
 @api_router.get("/datasets/{dataset_id}/auto-charts")
 async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current_user)):
-    """Generate predefined charts automatically with AI-generated insights"""
+    """Generate predefined charts automatically (without AI insights for speed)"""
     try:
         data_doc = await db.dataset_data.find_one({"dataset_id": dataset_id})
         if not data_doc:
@@ -1534,19 +1534,23 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
         
         charts = []
         
-        # Helper function to generate AI insights
-        async def generate_chart_insight(chart_type: str, data_context: dict) -> str:
-            try:
-                prompt = f"""Analyze this {chart_type} chart showing:
-                - Dataset: {dataset.get('title', dataset['name'])}
-                - Data points: {data_context.get('data_points', 'N/A')}
-                - Key metrics: {data_context.get('metrics', 'N/A')}
-                
-                Provide a concise, actionable insight (2 sentences max)."""
-                
-                return await generate_ai_insight(prompt)
-            except:
-                return generate_fallback_insight(chart_type)
+        # Helper function to generate basic insights (no AI)
+        def generate_basic_insight(chart_type: str, data_context: dict) -> str:
+            if chart_type == "bar distribution":
+                return f"Shows distribution of {len(data_context.get('metrics', []))} metrics across {data_context.get('data_points', 0)} data points."
+            elif chart_type == "trend line":
+                trend = data_context.get('trend', 'stable')
+                return f"Data shows {trend} trend. {'Consider capitalizing on growth.' if trend == 'upward' else 'Monitor for potential optimization.' if trend == 'downward' else 'Stable baseline for testing.'}"
+            elif chart_type == "pie composition":
+                top_pct = data_context.get('top_percentage', 0)
+                return f"Top segment represents {top_pct:.1f}% of total. {'High concentration - consider diversification.' if top_pct > 50 else 'Well-distributed segments.'}"
+            elif chart_type == "area comparison":
+                corr = data_context.get('correlation', 0)
+                return f"Correlation: {corr:.2f}. {'Strong relationship detected.' if abs(corr) > 0.7 else 'Moderate correlation.' if abs(corr) > 0.3 else 'Weak correlation.'}"
+            elif chart_type == "scatter correlation":
+                corr = data_context.get('correlation', 0)
+                return f"Scatter analysis shows {abs(corr):.2f} correlation. {'Variables move together.' if corr > 0.5 else 'Variables move inversely.' if corr < -0.5 else 'Limited linear relationship.'}"
+            return "Analysis complete."
         
         # 1. Distribution Chart (Bar/Column)
         if len(numeric_cols) >= 1 and len(all_cols) >= 1:
@@ -1555,7 +1559,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
                 for key in record:
                     record[key] = serialize_for_json(record[key])
             
-            insight = await generate_chart_insight("bar distribution", {
+            insight = generate_basic_insight("bar distribution", {
                 "data_points": len(chart_data),
                 "metrics": numeric_cols[:2]
             })
@@ -1586,7 +1590,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
                 slope, _, _, _, _ = stats.linregress(x, values)
                 trend = "upward" if slope > 0 else "downward"
             
-            insight = await generate_chart_insight("trend line", {
+            insight = generate_basic_insight("trend line", {
                 "data_points": len(chart_data),
                 "metrics": numeric_cols[:3],
                 "trend": trend,
@@ -1614,7 +1618,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
             top_value = df[numeric_cols[0]].max()
             top_pct = (top_value / total * 100) if total > 0 else 0
             
-            insight = await generate_chart_insight("pie composition", {
+            insight = generate_basic_insight("pie composition", {
                 "data_points": len(pie_data),
                 "metrics": [numeric_cols[0]],
                 "top_percentage": top_pct
@@ -1639,7 +1643,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
             
             corr = df[numeric_cols[:2]].corr().iloc[0, 1] if len(numeric_cols) >= 2 else 0
             
-            insight = await generate_chart_insight("area comparison", {
+            insight = generate_basic_insight("area comparison", {
                 "data_points": len(chart_data),
                 "metrics": numeric_cols[:2],
                 "correlation": corr
@@ -1664,7 +1668,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
             
             corr = df[numeric_cols[:2]].corr().iloc[0, 1]
             
-            insight = await generate_chart_insight("scatter correlation", {
+            insight = generate_basic_insight("scatter correlation", {
                 "data_points": len(scatter_data),
                 "metrics": numeric_cols[:2],
                 "correlation": corr
@@ -1684,7 +1688,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
             "dataset_id": dataset_id,
             "dataset_name": dataset['name'],
             "charts": charts,
-            "summary": f"Generated {len(charts)} AI-powered charts with actionable insights."
+            "summary": f"Generated {len(charts)} charts with insights."
         }
         
     except Exception as e:
