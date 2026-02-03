@@ -1711,7 +1711,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
 
 @api_router.get("/reports/{dataset_id}/pdf")
 async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_user)):
-    """Generate comprehensive PDF report with original structure + AI-powered insights appended"""
+    """Generate comprehensive PDF report - creates NEW report each time with timestamp"""
     try:
         # Fetch dataset
         dataset = await db.datasets.find_one({"id": dataset_id}, {"_id": 0})
@@ -1725,8 +1725,58 @@ async def generate_pdf_report(dataset_id: str, user: dict = Depends(get_current_
         df = pd.DataFrame(data_doc['data'])
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         
-        # Create PDF
-        pdf_filename = f"/tmp/report_{dataset_id}.pdf"
+        # Generate unique report ID and filename with timestamp
+        report_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc)
+        timestamp_str = timestamp.strftime('%Y%m%d_%H%M%S')
+        pdf_filename = f"/tmp/report_{dataset_id}_{timestamp_str}.pdf"
+        
+        # Capture current charts snapshot
+        charts_snapshot = []
+        try:
+            # Generate charts data for the report
+            all_cols = df.columns.tolist()
+            
+            if len(numeric_cols) >= 1 and len(all_cols) >= 1:
+                chart_data = df.head(20)[[all_cols[0]] + numeric_cols[:2]].to_dict('records')
+                for record in chart_data:
+                    for key in record:
+                        record[key] = serialize_for_json(record[key])
+                charts_snapshot.append({
+                    "type": "bar",
+                    "title": "Distribution Overview",
+                    "data_points": len(chart_data),
+                    "columns": [all_cols[0]] + numeric_cols[:2]
+                })
+            
+            if len(numeric_cols) >= 1:
+                values = df[numeric_cols[0]].dropna().values[:50]
+                trend = "stable"
+                if len(values) > 1:
+                    x = np.arange(len(values))
+                    slope, _, _, _, _ = stats.linregress(x, values)
+                    trend = "upward" if slope > 0 else "downward"
+                charts_snapshot.append({
+                    "type": "line",
+                    "title": "Trend Analysis",
+                    "trend": trend,
+                    "data_points": len(values)
+                })
+        except Exception as e:
+            logger.warning(f"Charts snapshot error: {e}")
+        
+        # Capture statistics snapshot
+        statistics_snapshot = {}
+        for col in numeric_cols[:5]:
+            statistics_snapshot[col] = {
+                "mean": float(df[col].mean()),
+                "median": float(df[col].median()),
+                "std": float(df[col].std()),
+                "min": float(df[col].min()),
+                "max": float(df[col].max())
+            }
+        
+        # Create PDF document
         doc = SimpleDocTemplate(pdf_filename, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
         story = []
         styles = getSampleStyleSheet()
