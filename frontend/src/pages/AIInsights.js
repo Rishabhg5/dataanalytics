@@ -178,7 +178,7 @@ export default function AIInsights() {
             <Brain className="w-8 h-8 text-white" />
           </div>
           <div>
-            <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight">
+            <h1 className="MMD__heading font-bold text-slate-900 tracking-tight" >
               AI-Powered Insights
             </h1>
             <p className="text-lg text-slate-600 leading-relaxed mt-2">

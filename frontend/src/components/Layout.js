@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Upload, Database, Search, ChevronDown, ChevronRight, 
   Wrench, BarChart3, Lightbulb, FileText, Users, ScrollText, LogOut, 
-  LogIn, Brain, Shield, Menu, X, GitCommit // <--- 1. Imported GitCommit Icon
+  LogIn, Brain, Shield, Menu, X, GitCommit, Loader2 
 } from 'lucide-react';
 import axios from 'axios';
 import logo from '../logo.png';
@@ -15,20 +15,31 @@ const API = `${BACKEND_URL}/api`;
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, isAdmin, isManager } = useAuth();
+  // Destructure all necessary auth values including 'loading' and 'hasPermission'
+  const { user, logout, isAdmin, isManager, loading, hasPermission } = useAuth();
   
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [datasets, setDatasets] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedDatasets, setExpandedDatasets] = useState(false);
 
+  // 1. Protection Effect: Redirect to login if not authenticated and loading is done
   useEffect(() => {
-    fetchDatasets();
-    const interval = setInterval(() => {
-      fetchDatasets(searchQuery);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!loading && !user) {
+      navigate('/login');
+    }
+  }, [user, loading, navigate]);
+
+  // 2. Fetch Datasets (Only if user exists)
+  useEffect(() => {
+    if (user) {
+      fetchDatasets();
+      const interval = setInterval(() => {
+        fetchDatasets(searchQuery);
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [user, searchQuery]);
 
   const fetchDatasets = async (search = '') => {
     try {
@@ -46,9 +57,10 @@ export default function Layout() {
     fetchDatasets(query);
   };
 
+  // 3. Logout Redirect Fix
   const handleLogout = () => {
     logout();
-    navigate('/');
+    navigate('/login');
   };
 
   const ROLE_COLORS = {
@@ -57,6 +69,21 @@ export default function Layout() {
     analyst: 'bg-green-100 text-green-800',
     viewer: 'bg-slate-100 text-slate-800'
   };
+
+  // 4. Loading Spinner View
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <p className="text-sm text-slate-500 font-medium">Restoring session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Prevent rendering if not logged in (redirect happens in useEffect)
+  if (!user) return null;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -102,33 +129,41 @@ export default function Layout() {
               <LayoutDashboard className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
               <span className="font-medium text-xs">Home</span>
             </Link>
-            <Link
-              to="/upload"
-              data-testid="nav-upload"
-              className={`sidebar-link flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 transition-all ${
-                location.pathname === '/upload' ? 'active' : 'text-slate-700'
-              }`}
-            >
-              <Upload className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
-              <span className="font-medium text-xs">Upload Data</span>
-            </Link>
+
+            {/* 5. Hide Upload for Viewers using RBAC */}
+            {hasPermission('write') && (
+              <Link
+                to="/upload"
+                data-testid="nav-upload"
+                className={`sidebar-link flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 transition-all ${
+                  location.pathname === '/upload' ? 'active' : 'text-slate-700'
+                }`}
+              >
+                <Upload className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+                <span className="font-medium text-xs">Upload Data</span>
+              </Link>
+            )}
           </nav>
 
           {/* Analysis Navigation */}
           <nav className="px-2.5 py-2.5 border-t border-slate-200">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 px-2.5">Analysis</p>
-            <Link
-              to="/preparation"
-              data-testid="nav-data-prep"
-              className={`sidebar-link flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 transition-all ${
-                location.pathname === '/preparation' || location.pathname.includes('/preparation') ? 'active' : 'text-slate-700'
-              }`}
-            >
-              <Wrench className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
-              <span className="font-medium text-xs">Data Prep</span>
-            </Link>
+            
+            {/* 5. Hide Data Prep for Viewers using RBAC */}
+            {hasPermission('write') && (
+              <Link
+                to="/preparation"
+                data-testid="nav-data-prep"
+                className={`sidebar-link flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 transition-all ${
+                  location.pathname === '/preparation' || location.pathname.includes('/preparation') ? 'active' : 'text-slate-700'
+                }`}
+              >
+                <Wrench className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+                <span className="font-medium text-xs">Data Prep</span>
+              </Link>
+            )}
 
-            {/* --- 2. ADDED COMPARISON LINK HERE --- */}
+            {/* Comparison Link - Visible to everyone */}
             <Link
               to="/comparison"
               data-testid="nav-comparison"
@@ -139,7 +174,6 @@ export default function Layout() {
               <GitCommit className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
               <span className="font-medium text-xs">Comparison</span>
             </Link>
-            {/* ------------------------------------ */}
 
             <Link
               to="/analytics"
@@ -246,12 +280,15 @@ export default function Layout() {
                   <div className="px-2 py-6 text-center">
                     <Database className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="text-xs text-slate-500 mb-2">No datasets found</p>
-                    <Link
-                      to="/upload"
-                      className="inline-block text-xs text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
-                    >
-                      Upload your first dataset
-                    </Link>
+                    {/* Only show "Upload your first dataset" link if user has write permission */}
+                    {hasPermission('write') && (
+                      <Link
+                        to="/upload"
+                        className="inline-block text-xs text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
+                      >
+                        Upload your first dataset
+                      </Link>
+                    )}
                   </div>
                 ) : (
                   datasets.map((dataset) => (
@@ -289,37 +326,27 @@ export default function Layout() {
 
         {/* User Section - Fixed at Bottom */}
         <div className="flex-shrink-0 px-3 py-2.5 border-t border-slate-200 bg-slate-50">
-          {user ? (
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-700 font-semibold text-xs">
-                  {user.name?.charAt(0).toUpperCase() || 'U'}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-slate-900 truncate">{user.name}</p>
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[user.role]}`}>
-                  <Shield className="w-2.5 h-2.5" />
-                  {user.role}
-                </span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-all flex-shrink-0"
-                title="Logout"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-indigo-700 font-semibold text-xs">
+                {user.name?.charAt(0).toUpperCase() || 'U'}
+              </span>
             </div>
-          ) : (
-            <Link
-              to="/login"
-              className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors"
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-900 truncate">{user.name}</p>
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[user.role]}`}>
+                <Shield className="w-2.5 h-2.5" />
+                {user.role}
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-all flex-shrink-0"
+              title="Logout"
             >
-              <LogIn className="w-4 h-4" />
-              <span className="font-medium text-xs">Sign In</span>
-            </Link>
-          )}
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -344,7 +371,9 @@ export default function Layout() {
               {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
             <div className="flex-1" />
-            {!user && (
+            
+            {/* Fallback login link if user is somehow null but passed checks */}
+            {!user && !loading && (
               <Link
                 to="/login"
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs font-medium"

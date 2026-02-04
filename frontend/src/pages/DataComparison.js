@@ -1,29 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { BarChart, Activity, GitCommit, AlertTriangle, CheckCircle } from 'lucide-react';
+import { 
+  BarChart2, GitCommit, AlertTriangle, CheckCircle, Activity, 
+  Table, Layers, ArrowRight, TrendingUp 
+} from 'lucide-react';
 
 export default function DataComparison() {
   const { token } = useAuth();
   const [datasets, setDatasets] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
-  const [comparisonResult, setComparisonResult] = useState(null);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch available datasets on mount
   useEffect(() => {
     fetch('http://localhost:8000/api/datasets', {
       headers: { Authorization: `Bearer ${token}` }
     })
     .then(res => res.json())
-    .then(data => setDatasets(data))
-    .catch(err => console.error(err));
+    .then(data => setDatasets(data));
   }, [token]);
 
   const toggleSelection = (id) => {
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter(x => x !== id));
-    } else {
-      if (selectedIds.length >= 3) return; // Limit to 3 for UI clarity
+    } else if (selectedIds.length < 2) { // Allow max 2 for deep comparison simplicity
       setSelectedIds([...selectedIds, id]);
     }
   };
@@ -33,14 +33,11 @@ export default function DataComparison() {
     try {
       const res = await fetch('http://localhost:8000/api/comparison/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ dataset_ids: selectedIds })
       });
       const data = await res.json();
-      setComparisonResult(data);
+      setResult(data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -49,13 +46,14 @@ export default function DataComparison() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold text-white mb-2">Data Comparison</h1>
-        <p className="text-slate-400">Select up to 3 datasets to analyze differences and drift.</p>
-      </header>
+    <div className="p-8 max-w-7xl mx-auto space-y-8 pb-20">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900 mb-2">Deep Data Comparison</h1>
+        <p className="text-slate-600">Select 2 datasets to analyze statistical drift, schema changes, and distribution shifts.</p>
+      </div>
 
-      {/* 1. Dataset Selection */}
+      {/* Dataset Selector */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {datasets.map(ds => (
           <div 
@@ -63,16 +61,16 @@ export default function DataComparison() {
             onClick={() => toggleSelection(ds.id)}
             className={`cursor-pointer p-4 rounded-xl border transition-all ${
               selectedIds.includes(ds.id) 
-                ? 'bg-indigo-600/20 border-indigo-500 ring-1 ring-indigo-500' 
-                : 'bg-white/5 border-white/10 hover:bg-white/10'
+                ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500' 
+                : 'bg-white border-slate-200 hover:border-indigo-300'
             }`}
           >
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="font-semibold text-white">{ds.title || ds.name}</h3>
-                <p className="text-xs text-slate-400 mt-1">{ds.rows} rows • {ds.columns} cols</p>
+                <h3 className="font-semibold text-slate-900">{ds.title || ds.name}</h3>
+                <p className="text-xs text-slate-500 mt-1">{ds.rows.toLocaleString()} rows • {ds.columns} cols</p>
               </div>
-              {selectedIds.includes(ds.id) && <CheckCircle className="w-5 h-5 text-indigo-400" />}
+              {selectedIds.includes(ds.id) && <CheckCircle className="w-5 h-5 text-indigo-600" />}
             </div>
           </div>
         ))}
@@ -80,102 +78,178 @@ export default function DataComparison() {
 
       <button
         onClick={runComparison}
-        disabled={selectedIds.length < 2 || loading}
-        className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors flex items-center gap-2"
+        disabled={selectedIds.length !== 2 || loading}
+        className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium disabled:opacity-50 hover:bg-indigo-700 transition-colors flex items-center gap-2"
       >
         {loading ? <Activity className="w-4 h-4 animate-spin" /> : <GitCommit className="w-4 h-4" />}
-        Compare Selected Data
+        Compare 2 Datasets
       </button>
 
-      {/* 2. Results View */}
-      {comparisonResult && (
+      {/* RESULTS SECTION */}
+      {result && (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/10">
-              <h4 className="text-sm text-slate-400">Common Columns</h4>
-              <p className="text-2xl font-bold text-white">{comparisonResult.summary.common_columns_count}</p>
+          {/* 1. Data Health & Quality Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+              <Table className="w-5 h-5 text-slate-500" />
+              <h3 className="font-semibold text-slate-900">Data Quality & Health</h3>
             </div>
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/10">
-              <h4 className="text-sm text-slate-400">Combined Rows</h4>
-              <p className="text-2xl font-bold text-white">{comparisonResult.summary.total_rows_combined}</p>
-            </div>
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/10">
-              <h4 className="text-sm text-slate-400">Schema Match</h4>
-              <p className="text-xl font-bold text-emerald-400">
-                {Object.values(comparisonResult.schema_diff.unique_columns_per_dataset).every(x => x.length === 0) 
-                  ? "Perfect Match" 
-                  : "Partial Match"}
-              </p>
-            </div>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="p-4 font-medium">Metric</th>
+                  {result.quality_comparison.map(q => (
+                    <th key={q.dataset} className="p-4 font-medium text-slate-900">{q.dataset}</th>
+                  ))}
+                  <th className="p-4 font-medium">Difference</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <tr>
+                  <td className="p-4 text-slate-500">Total Rows</td>
+                  {result.quality_comparison.map(q => <td key={q.dataset} className="p-4 font-mono">{q.total_rows.toLocaleString()}</td>)}
+                  <td className="p-4 text-slate-400">
+                    {Math.abs(result.quality_comparison[0].total_rows - result.quality_comparison[1].total_rows).toLocaleString()}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="p-4 text-slate-500">Missing Values</td>
+                  {result.quality_comparison.map(q => (
+                    <td key={q.dataset} className="p-4">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${q.missing_percent > 5 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                        {q.missing_percent}%
+                      </span>
+                    </td>
+                  ))}
+                  <td className="p-4 text-slate-400">Δ {Math.abs(result.quality_comparison[0].missing_percent - result.quality_comparison[1].missing_percent).toFixed(2)}%</td>
+                </tr>
+                <tr>
+                  <td className="p-4 text-slate-500">Duplicate Rows</td>
+                  {result.quality_comparison.map(q => <td key={q.dataset} className="p-4 font-mono">{q.duplicate_rows}</td>)}
+                  <td className="p-4"></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          {/* Numeric Comparison */}
-          <div>
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              <BarChart className="w-5 h-5 text-indigo-400" />
-              Numeric Drift Analysis
-            </h2>
-            <div className="grid gap-6">
-              {comparisonResult.numeric_comparison.map(col => (
-                <div key={col.column} className="bg-white/5 rounded-xl border border-white/10 p-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-semibold text-lg text-white">{col.column}</h3>
-                    {col.statistical_test?.significant && (
-                      <span className="flex items-center gap-1 text-amber-400 text-sm bg-amber-400/10 px-2 py-1 rounded">
-                        <AlertTriangle className="w-3 h-3" /> Significant Drift
-                      </span>
-                    )}
+          {/* 2. Numeric Drift Analysis */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-indigo-600" />
+              Statistical Drift Analysis
+            </h3>
+            
+            <div className="grid grid-cols-1 gap-6">
+              {result.numeric_comparison.map((col) => (
+                <div key={col.column} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h4 className="text-lg font-bold text-slate-900">{col.column}</h4>
+                      <p className="text-sm text-slate-500 mt-1">Comparing distributions</p>
+                    </div>
+                    
+                    {/* Drift Badge */}
+                    <div className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                      col.drift_analysis.status === "High Drift Detected" 
+                        ? 'bg-red-100 text-red-700 border border-red-200' 
+                        : col.drift_analysis.status === "Moderate Drift"
+                        ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                        : 'bg-green-100 text-green-700 border border-green-200'
+                    }`}>
+                      {col.drift_analysis.status === "Stable" ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                      {col.drift_analysis.status}
+                      <span className="font-normal opacity-70 ml-1">(p={col.drift_analysis.p_value.toFixed(3)})</span>
+                    </div>
                   </div>
-                  
-                  {/* Comparison Bar */}
-                  <div className="space-y-3">
-                    {col.metrics.map(metric => (
-                      <div key={metric.dataset} className="flex items-center gap-4">
-                        <span className="w-32 text-sm text-slate-400 truncate">{metric.dataset}</span>
-                        <div className="flex-1 h-8 bg-slate-700/50 rounded-md overflow-hidden relative">
-                          {/* Visual bar representing value relative to max in group */}
+
+                  {/* Histogram Visualization */}
+                  <div className="mb-6">
+                    <h5 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Distribution Shape</h5>
+                    <div className="h-40 flex items-end gap-2 border-b border-slate-200 pb-2">
+                      {col.histogram.labels.map((label, idx) => (
+                        <div key={idx} className="flex-1 flex gap-1 h-full items-end justify-center group relative">
+                          {/* Dataset 1 Bar */}
                           <div 
-                            className="h-full bg-indigo-500/50 absolute top-0 left-0 transition-all duration-1000"
-                            style={{ 
-                              width: `${(metric.mean / Math.max(...col.metrics.map(m => m.mean))) * 100}%` 
-                            }}
+                            className="w-full bg-indigo-500/80 hover:bg-indigo-600 transition-all rounded-t-sm"
+                            style={{ height: `${Object.values(col.histogram.datasets)[0][idx]}%` }}
                           />
-                          <div className="absolute inset-0 flex items-center justify-between px-3 text-xs">
-                            <span className="text-white z-10 font-medium">Mean: {metric.mean.toFixed(2)}</span>
-                            <span className="text-slate-300 z-10">Std: {metric.std.toFixed(2)}</span>
+                          {/* Dataset 2 Bar */}
+                          <div 
+                            className="w-full bg-emerald-500/80 hover:bg-emerald-600 transition-all rounded-t-sm"
+                            style={{ height: `${Object.values(col.histogram.datasets)[1][idx]}%` }}
+                          />
+                          
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full mb-2 hidden group-hover:block bg-slate-800 text-white text-xs p-2 rounded z-10 whitespace-nowrap">
+                            Range: {label}
                           </div>
                         </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between mt-2 text-xs text-slate-400 px-1">
+                      <span>Low Value</span>
+                      <span>High Value</span>
+                    </div>
+                    {/* Legend */}
+                    <div className="flex justify-center gap-4 mt-3">
+                      <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                        <div className="w-3 h-3 bg-indigo-500 rounded-sm"></div>
+                        {Object.keys(col.histogram.datasets)[0]}
                       </div>
-                    ))}
+                      <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                        <div className="w-3 h-3 bg-emerald-500 rounded-sm"></div>
+                        {Object.keys(col.histogram.datasets)[1]}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Statistical Summary Table */}
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg text-sm">
+                     {Object.entries(col.stats).map(([dsName, stats]) => (
+                       <div key={dsName}>
+                          <h6 className="font-semibold text-slate-700 mb-2 truncate" title={dsName}>{dsName}</h6>
+                          <div className="space-y-1 text-slate-600">
+                            <div className="flex justify-between"><span>Mean:</span> <span className="font-mono">{stats.mean.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Std Dev:</span> <span className="font-mono">{stats.std.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Zeros:</span> <span className="font-mono">{stats.zeros}</span></div>
+                          </div>
+                       </div>
+                     ))}
                   </div>
                 </div>
               ))}
             </div>
           </div>
-
-          {/* Schema Differences (if any) */}
-          <div className="bg-slate-800/50 rounded-xl border border-white/10 p-6">
-             <h2 className="text-xl font-bold text-white mb-4">Schema Differences</h2>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Object.entries(comparisonResult.schema_diff.unique_columns_per_dataset).map(([ds, cols]) => (
-                  <div key={ds}>
-                    <h4 className="font-medium text-indigo-300 mb-2">{ds} (Unique Columns)</h4>
-                    {cols.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {cols.map(c => (
-                          <span key={c} className="text-xs bg-slate-700 text-slate-200 px-2 py-1 rounded border border-white/10">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-slate-500 italic">No unique columns</span>
-                    )}
-                  </div>
-                ))}
-             </div>
+          
+          {/* 3. Schema Differences */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Layers className="w-5 h-5 text-indigo-600" />
+              <h3 className="text-lg font-bold text-slate-900">Schema Differences</h3>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {Object.entries(result.schema_diff).map(([ds, cols]) => (
+                <div key={ds}>
+                  <h4 className="font-medium text-slate-900 mb-3 flex items-center gap-2">
+                    <ArrowRight className="w-4 h-4 text-indigo-400" />
+                    Unique to: <span className="text-indigo-600">{ds}</span>
+                  </h4>
+                  {cols.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {cols.map(c => (
+                        <span key={c} className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded border border-slate-200 font-mono">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400 italic">No unique columns (Schema matches)</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
         </div>
