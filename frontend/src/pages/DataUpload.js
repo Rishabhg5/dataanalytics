@@ -3,11 +3,13 @@ import axios from 'axios';
 import { Upload, FileText, CheckCircle2, Database, Globe, FileJson } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // Import AuthContext to get token
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function DataUpload() {
+  const { token } = useAuth(); // Get the token
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadedDataset, setUploadedDataset] = useState(null);
@@ -15,14 +17,33 @@ export default function DataUpload() {
   const [datasetTitle, setDatasetTitle] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [mysqlConfig, setMysqlConfig] = useState({
-    host: '',
+    host: 'localhost',
     database: '',
-    user: '',
+    user_db: 'root', // Changed from 'user' to 'user_db' to match server.py
     password: '',
     query: '',
     port: 3306
   });
   const navigate = useNavigate();
+
+  // Helper function to safely display errors
+  const safeToastError = (error, defaultMsg) => {
+    console.error(defaultMsg, error);
+    const detail = error.response?.data?.detail;
+    let message = defaultMsg;
+
+    if (detail) {
+      if (typeof detail === 'string') {
+        message = detail;
+      } else if (Array.isArray(detail)) {
+        // Handle FastAPI validation error arrays
+        message = detail.map(err => err.msg).join(', ');
+      } else if (typeof detail === 'object') {
+        message = JSON.stringify(detail);
+      }
+    }
+    toast.error(message);
+  };
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -43,14 +64,16 @@ export default function DataUpload() {
 
     try {
       const response = await axios.post(`${API}/datasets/upload?title=${encodeURIComponent(title)}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
+        },
       });
       
       setUploadedDataset(response.data);
       toast.success('Dataset uploaded successfully!');
     } catch (error) {
-      console.error('Upload error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to upload file');
+      safeToastError(error, 'Failed to upload file');
     } finally {
       setUploading(false);
     }
@@ -64,31 +87,38 @@ export default function DataUpload() {
 
     setUploading(true);
     try {
-      const response = await axios.post(`${API}/datasets/upload-from-api?api_url=${encodeURIComponent(apiUrl)}`);
+      const response = await axios.post(`${API}/datasets/upload-from-api`, null, {
+        params: { api_url: apiUrl },
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       setUploadedDataset(response.data);
       toast.success('Data imported from API successfully!');
     } catch (error) {
-      console.error('API upload error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to import from API');
+      safeToastError(error, 'Failed to import from API');
     } finally {
       setUploading(false);
     }
   };
 
   const handleMySQLUpload = async () => {
-    if (!mysqlConfig.host || !mysqlConfig.database || !mysqlConfig.user || !mysqlConfig.query) {
+    // Basic validation
+    if (!mysqlConfig.host || !mysqlConfig.database || !mysqlConfig.user_db || !mysqlConfig.query) {
       toast.error('Please fill in all MySQL connection details');
       return;
     }
 
     setUploading(true);
     try {
-      const response = await axios.post(`${API}/datasets/upload-from-mysql`, mysqlConfig);
+      // FIX: Send data as 'params' (Query Parameters) because server.py expects arguments, not a JSON body
+      const response = await axios.post(`${API}/datasets/upload-from-mysql`, null, {
+        params: mysqlConfig,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
       setUploadedDataset(response.data);
       toast.success('Data imported from MySQL successfully!');
     } catch (error) {
-      console.error('MySQL upload error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to import from MySQL');
+      safeToastError(error, 'Failed to import from MySQL');
     } finally {
       setUploading(false);
     }
@@ -314,8 +344,8 @@ export default function DataUpload() {
                   <label className="block text-sm font-medium text-slate-700 mb-2">User</label>
                   <input
                     type="text"
-                    value={mysqlConfig.user}
-                    onChange={(e) => setMysqlConfig({...mysqlConfig, user: e.target.value})}
+                    value={mysqlConfig.user_db}
+                    onChange={(e) => setMysqlConfig({...mysqlConfig, user_db: e.target.value})}
                     placeholder="username"
                     className="w-full h-11 rounded-lg border border-slate-300 px-4 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />

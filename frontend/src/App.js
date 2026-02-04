@@ -14,6 +14,7 @@ import Reports from './pages/Reports';
 import UserManagement from './pages/UserManagement';
 import AuditLogs from './pages/AuditLogs';
 import { Toaster } from '@/components/ui/sonner';
+import DataComparison from './pages/DataComparison';
 import '@/App.css';
 
 function App() {
@@ -35,6 +36,7 @@ function App() {
             <Route path="insights" element={<Insights />} />
             <Route path="ai-insights" element={<AIInsights />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="comparison" element={<DataComparison />} />
             
             {/* Admin routes */}
             <Route path="users" element={<UserManagement />} />
