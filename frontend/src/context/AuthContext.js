@@ -7,36 +7,57 @@ const API = `${BACKEND_URL}/api`;
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  // 1. Initialize user from localStorage immediately to prevent "flash" of null on reload
+  const [user, setUser] = useState(() => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      return null;
+    }
+  });
+  
   const [token, setToken] = useState(localStorage.getItem('token'));
+  
+  // Start loading as true only if we have a token but no user yet
+  // If we have a user from localStorage, we can start with loading = false (or keep true to verify in bg)
+  // For smoothest UI, we start true, but since user is already set, Layout won't redirect immediately.
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
+    const initializeAuth = async () => {
+      if (token) {
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        try {
+          // Verify token is still valid by fetching fresh user data
+          const response = await axios.get(`${API}/auth/me`);
+          setUser(response.data);
+          // Update local storage with fresh data
+          localStorage.setItem('user', JSON.stringify(response.data));
+        } catch (error) {
+          console.error('Failed to fetch user:', error);
+          // If token is invalid (401), clear everything
+          logout();
+        }
+      } else {
+        // No token, ensure user is cleared
+        setUser(null);
+        localStorage.removeItem('user');
+      }
       setLoading(false);
-    }
-  }, [token]);
+    };
 
-  const fetchUser = async () => {
-    try {
-      const response = await axios.get(`${API}/auth/me`);
-      setUser(response.data);
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
-      logout();
-    } finally {
-      setLoading(false);
-    }
-  };
+    initializeAuth();
+  }, [token]);
 
   const login = async (email, password) => {
     const response = await axios.post(`${API}/auth/login`, { email, password });
     const { access_token, user: userData } = response.data;
     
+    // Save Token AND User to localStorage
     localStorage.setItem('token', access_token);
+    localStorage.setItem('user', JSON.stringify(userData));
+    
     axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
     setToken(access_token);
     setUser(userData);
@@ -53,7 +74,10 @@ export function AuthProvider({ children }) {
     });
     const { access_token, user: userData } = response.data;
     
+    // Save Token AND User to localStorage
     localStorage.setItem('token', access_token);
+    localStorage.setItem('user', JSON.stringify(userData));
+
     axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
     setToken(access_token);
     setUser(userData);
@@ -63,6 +87,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user'); // Clear user data
     delete axios.defaults.headers.common['Authorization'];
     setToken(null);
     setUser(null);
