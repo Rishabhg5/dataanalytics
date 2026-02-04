@@ -154,7 +154,7 @@ export default function DataUpload() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-4">
+        <h1  className="MMD__heading font-bold text-slate-900 tracking-tight ">
           Upload Your Data
         </h1>
         <p className="text-lg text-slate-600 leading-relaxed">
