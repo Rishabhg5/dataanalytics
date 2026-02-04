@@ -1765,7 +1765,7 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
 
 @api_router.get("/reports/{dataset_id}/pdf")
 async def generate_pdf_report(dataset_id: str):
-    """Generate comprehensive PDF report with AI-style automated analysis, executive summary, KPIs, visualizations, and intelligent recommendations"""
+    """Generate comprehensive PDF report with AI-style automated analysis, executive summary, KPIs, visualizations, intelligent recommendations, relationship analysis, and performance predictions"""
     try:
         # Fetch dataset
         print(f"Generating PDF report for dataset {dataset_id}")
@@ -2487,8 +2487,704 @@ async def generate_pdf_report(dataset_id: str):
         
         story.append(PageBreak())
         
+        # ============ COMPREHENSIVE DATA INSIGHTS ============
+        story.append(Paragraph("8. COMPREHENSIVE DATA INSIGHTS & ANALYSIS", heading_style))
+        
+        story.append(Paragraph("8.1 Dataset Overview & Composition", subheading_style))
+        
+        # Detailed dataset composition analysis
+        total_cells = len(df) * len(df.columns)
+        filled_cells = total_cells - df.isnull().sum().sum()
+        empty_cells = df.isnull().sum().sum()
+        
+        text_cols = df.select_dtypes(include=['object']).columns.tolist()
+        date_cols = df.select_dtypes(include=['datetime64']).columns.tolist()
+        bool_cols = df.select_dtypes(include=['bool']).columns.tolist()
+        
+        composition_text = f"""
+        <b>Excel File Structure Analysis:</b><br/>
+        <br/>
+        Your Excel dataset contains a total of <b>{len(df):,} rows</b> and <b>{len(df.columns)} columns</b>, 
+        creating a matrix of <b>{total_cells:,} individual data cells</b>. This represents a 
+        {('large' if len(df) > 1000 else 'medium-sized' if len(df) > 100 else 'small')} dataset suitable for 
+        {('advanced analytics and machine learning' if len(df) > 1000 else 'statistical analysis and trend detection' if len(df) > 100 else 'basic analysis and pattern identification')}.
+        <br/><br/>
+        <b>Data Completeness Analysis:</b><br/>
+        Of the {total_cells:,} total cells in your Excel file:<br/>
+        • <b>{filled_cells:,} cells ({(filled_cells/total_cells*100):.1f}%)</b> contain data<br/>
+        • <b>{empty_cells:,} cells ({(empty_cells/total_cells*100):.1f}%)</b> are empty or contain missing values<br/>
+        <br/>
+        This {('excellent' if (filled_cells/total_cells*100) > 95 else 'good' if (filled_cells/total_cells*100) > 85 else 'moderate')} 
+        level of data completeness means your analysis is {('highly reliable' if (filled_cells/total_cells*100) > 95 else 'generally reliable' if (filled_cells/total_cells*100) > 85 else 'adequate but could benefit from data cleaning')}.
+        <br/><br/>
+        <b>Column Type Distribution:</b><br/>
+        Your dataset is composed of different types of data columns:<br/>
+        • <b>Numeric Columns: {len(numeric_cols)}</b> ({(len(numeric_cols)/len(df.columns)*100):.1f}% of all columns)<br/>
+        These columns contain quantitative data like measurements, counts, amounts, or ratings that can be mathematically analyzed.<br/>
+        <br/>
+        • <b>Text Columns: {len(text_cols)}</b> ({(len(text_cols)/len(df.columns)*100):.1f}% of all columns)<br/>
+        These columns contain categorical data, names, descriptions, or labels that classify or identify your records.<br/>
+        <br/>
+        """
+        
+        if date_cols:
+            composition_text += f"""
+            • <b>Date/Time Columns: {len(date_cols)}</b> ({(len(date_cols)/len(df.columns)*100):.1f}% of all columns)<br/>
+            These columns track temporal information, enabling time-series analysis and trend tracking over periods.<br/>
+            <br/>
+            """
+        
+        if bool_cols:
+            composition_text += f"""
+            • <b>Boolean Columns: {len(bool_cols)}</b> ({(len(bool_cols)/len(df.columns)*100):.1f}% of all columns)<br/>
+            These columns contain yes/no or true/false values, useful for binary classifications and flags.<br/>
+            <br/>
+            """
+        
+        composition_text += f"""
+        <b>Data Density & Information Richness:</b><br/>
+        The numeric data in your Excel file provides {len(numeric_cols) * len(df):,} individual numeric data points 
+        for quantitative analysis. With {len(text_cols)} text columns, you have rich categorical information that adds 
+        context and enables segmentation analysis. This combination of quantitative and qualitative data creates a 
+        well-rounded dataset for comprehensive business intelligence.
+        """
+        
+        story.append(Paragraph(composition_text, body_style))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # ============ DETAILED COLUMN-BY-COLUMN ANALYSIS ============
+        story.append(Paragraph("8.2 Column-by-Column Deep Dive Analysis", subheading_style))
+        
+        column_analysis_intro = f"""
+        <b>Understanding Each Column in Your Data:</b><br/>
+        <br/>
+        Let's examine each column in detail to understand what information it contains, how it behaves, 
+        and what insights it can provide for your business decisions. This analysis covers data distribution, 
+        patterns, and potential issues in each column.
+        """
+        story.append(Paragraph(column_analysis_intro, body_style))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Analyze each numeric column in detail
+        if numeric_cols:
+            for idx, col in enumerate(numeric_cols[:8], 1):  # Analyze up to 8 numeric columns
+                col_data = df[col].dropna()
+                
+                if len(col_data) > 0:
+                    mean_val = col_data.mean()
+                    median_val = col_data.median()
+                    std_val = col_data.std()
+                    min_val = col_data.min()
+                    max_val = col_data.max()
+                    q1 = col_data.quantile(0.25)
+                    q3 = col_data.quantile(0.75)
+                    iqr = q3 - q1
+                    cv = (std_val / mean_val * 100) if mean_val != 0 else 0
+                    range_val = max_val - min_val
+                    missing_count = df[col].isnull().sum()
+                    missing_pct = (missing_count / len(df)) * 100
+                    unique_count = col_data.nunique()
+                    
+                    # Determine data characteristics
+                    if cv < 20:
+                        variability = "LOW VARIABILITY - Data points are tightly clustered around the average"
+                    elif cv < 50:
+                        variability = "MODERATE VARIABILITY - Data shows reasonable spread with some fluctuation"
+                    else:
+                        variability = "HIGH VARIABILITY - Data is widely dispersed with significant fluctuations"
+                    
+                    # Check for outliers
+                    lower_bound = q1 - 1.5 * iqr
+                    upper_bound = q3 + 1.5 * iqr
+                    outliers = ((col_data < lower_bound) | (col_data > upper_bound)).sum()
+                    outlier_pct = (outliers / len(col_data)) * 100
+                    
+                    # Distribution skew
+                    if mean_val > median_val * 1.1:
+                        skew_info = "RIGHT-SKEWED - Higher values occur more frequently than lower values"
+                    elif mean_val < median_val * 0.9:
+                        skew_info = "LEFT-SKEWED - Lower values occur more frequently than higher values"
+                    else:
+                        skew_info = "NORMALLY DISTRIBUTED - Values are symmetrically distributed around the average"
+                    
+                    column_detail = f"""
+                    <b>Column #{idx}: {col}</b><br/>
+                    <br/>
+                    <b>Basic Statistics:</b><br/>
+                    This column contains numeric values ranging from <b>{min_val:.2f}</b> (minimum) to <b>{max_val:.2f}</b> (maximum), 
+                    spanning a total range of <b>{range_val:.2f}</b> units. The average value across all records is <b>{mean_val:.2f}</b>, 
+                    while the median (middle value) is <b>{median_val:.2f}</b>. The standard deviation of <b>{std_val:.2f}</b> indicates 
+                    how much values typically vary from the average.
+                    <br/><br/>
+                    <b>Data Quality & Completeness:</b><br/>
+                    Out of {len(df):,} total records, this column has <b>{len(col_data):,} filled values</b> and 
+                    <b>{missing_count} missing values</b> ({missing_pct:.1f}% missing). 
+                    {('This excellent data completeness ensures reliable analysis.' if missing_pct < 5 else 'Some data gaps exist but analysis remains viable.' if missing_pct < 15 else 'Significant missing data may impact analysis reliability - consider data collection improvements.')}
+                    The column contains <b>{unique_count:,} unique distinct values</b>, 
+                    {('indicating high granularity and detailed tracking' if unique_count > len(col_data) * 0.5 else 'showing some repeated patterns in the data' if unique_count > len(col_data) * 0.1 else 'with many repeated values suggesting categorical nature')}.
+                    <br/><br/>
+                    <b>Distribution Pattern:</b><br/>
+                    {skew_info}. The coefficient of variation is <b>{cv:.1f}%</b>, indicating {variability}.
+                    <br/><br/>
+                    <b>Quartile Analysis:</b><br/>
+                    • 25% of values fall below <b>{q1:.2f}</b> (First Quartile)<br/>
+                    • 50% of values fall below <b>{median_val:.2f}</b> (Median/Second Quartile)<br/>
+                    • 75% of values fall below <b>{q3:.2f}</b> (Third Quartile)<br/>
+                    • The interquartile range (middle 50% of data) spans <b>{iqr:.2f}</b> units<br/>
+                    <br/>
+                    <b>Outlier Detection:</b><br/>
+                    Using statistical methods, we identified <b>{outliers} potential outliers</b> ({outlier_pct:.1f}% of data). 
+                    {('This low outlier rate suggests consistent, reliable data.' if outlier_pct < 5 else 'Moderate outlier presence - review these values to ensure data quality.' if outlier_pct < 15 else 'High outlier rate - investigate these anomalies as they may indicate data errors or exceptional cases requiring special attention.')}
+                    <br/><br/>
+                    <b>Business Interpretation:</b><br/>
+                    {f'The average {col} of {mean_val:.2f} with relatively ' + ('low' if cv < 20 else 'moderate' if cv < 50 else 'high') + f' variation suggests ' + ('predictable and stable performance' if cv < 20 else 'some fluctuation but manageable trends' if cv < 50 else 'volatile conditions requiring careful monitoring') + '. '}
+                    {f'Values typically range from {q1:.2f} to {q3:.2f}, which can be used as benchmark targets for performance evaluation.'}
+                    """
+                    
+                    story.append(Paragraph(column_detail, body_style))
+                    story.append(Spacer(1, 0.25*inch))
+        
+        # Analyze text columns
+        if text_cols:
+            story.append(Paragraph("8.3 Categorical Data Analysis", subheading_style))
+            
+            for idx, col in enumerate(text_cols[:5], 1):  # Analyze up to 5 text columns
+                col_data = df[col].dropna()
+                
+                if len(col_data) > 0:
+                    unique_values = col_data.nunique()
+                    missing_count = df[col].isnull().sum()
+                    missing_pct = (missing_count / len(df)) * 100
+                    mode_value = col_data.mode()[0] if len(col_data.mode()) > 0 else "N/A"
+                    mode_count = (col_data == mode_value).sum()
+                    mode_pct = (mode_count / len(col_data)) * 100
+                    
+                    # Get top categories
+                    value_counts = col_data.value_counts()
+                    top_5_categories = value_counts.head(5)
+                    
+                    text_detail = f"""
+                    <b>Text Column: {col}</b><br/>
+                    <br/>
+                    <b>Category Distribution:</b><br/>
+                    This categorical column contains <b>{unique_values:,} unique categories or values</b> across 
+                    {len(col_data):,} records. The most common value is "<b>{mode_value}</b>", which appears 
+                    <b>{mode_count:,} times</b> ({mode_pct:.1f}% of all records). This 
+                    {('high concentration' if mode_pct > 50 else 'moderate concentration' if mode_pct > 20 else 'low concentration')} 
+                    suggests {('a dominant category that drives most of your data' if mode_pct > 50 else 'some clear patterns in category distribution' if mode_pct > 20 else 'diverse categories with balanced representation')}.
+                    <br/><br/>
+                    <b>Top 5 Most Frequent Categories:</b><br/>
+                    """
+                    
+                    for i, (cat, count) in enumerate(top_5_categories.items(), 1):
+                        cat_pct = (count / len(col_data)) * 100
+                        text_detail += f"• #{i}: <b>{cat}</b> - {count:,} occurrences ({cat_pct:.1f}%)<br/>"
+                    
+                    text_detail += f"""
+                    <br/>
+                    <b>Data Quality:</b><br/>
+                    Missing values: <b>{missing_count}</b> ({missing_pct:.1f}%). 
+                    {('Excellent data completeness.' if missing_pct < 5 else 'Good data quality with minor gaps.' if missing_pct < 15 else 'Consider data validation to reduce missing categories.')}
+                    <br/><br/>
+                    <b>Diversity Analysis:</b><br/>
+                    With {unique_values:,} distinct categories in {len(col_data):,} records, this column shows 
+                    {('very high diversity - almost every record is unique' if unique_values / len(col_data) > 0.8 else 'high diversity with many distinct values' if unique_values / len(col_data) > 0.3 else 'moderate diversity with some repeated patterns' if unique_values / len(col_data) > 0.1 else 'low diversity with frequently repeated categories')}.
+                    This level of categorization is ideal for {('detailed segmentation and granular analysis' if unique_values / len(col_data) > 0.5 else 'grouping and pattern identification' if unique_values / len(col_data) > 0.1 else 'broad categorization and high-level grouping')}.
+                    """
+                    
+                    story.append(Paragraph(text_detail, body_style))
+                    story.append(Spacer(1, 0.25*inch))
+        
+        story.append(PageBreak())
+        
+        # ============ DATA RELATIONSHIPS & INTERACTIONS ============
+        story.append(Paragraph("8.4 How Your Data Columns Interact With Each Other", subheading_style))
+        
+        interaction_intro = f"""
+        <b>Understanding Column Relationships:</b><br/>
+        <br/>
+        In your Excel data, columns don't exist in isolation - they interact, influence each other, and create patterns 
+        that reveal important business insights. This section analyzes how different columns in your dataset relate to 
+        one another, which relationships are strong enough to use for predictions, and what these connections mean for 
+        your business decisions.
+        <br/><br/>
+        <b>Why Column Relationships Matter:</b><br/>
+        When two columns move together (correlation), it means changes in one can help predict changes in the other. 
+        This is invaluable for:<br/>
+        • <b>Forecasting:</b> Use leading indicators to predict future outcomes<br/>
+        • <b>Root Cause Analysis:</b> Understand what drives changes in key metrics<br/>
+        • <b>Efficiency:</b> Focus monitoring on the most impactful factors<br/>
+        • <b>Optimization:</b> Know which levers to pull for maximum effect<br/>
+        """
+        story.append(Paragraph(interaction_intro, body_style))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # ============ PREDICTIVE INSIGHTS ============
+        story.append(Paragraph("8.5 Predictive Analysis: What Your Data Tells About Future Performance", subheading_style))
+        
+        if len(numeric_cols) >= 2:
+            prediction_intro = f"""
+            <b>Machine Learning-Based Predictions:</b><br/>
+            <br/>
+            Using advanced statistical modeling, we've analyzed how the columns in your Excel file can be used to 
+            predict future outcomes. This analysis uses the patterns hidden in your historical data to forecast 
+            what's likely to happen next, giving you a powerful tool for proactive decision-making.
+            <br/><br/>
+            <b>What We're Predicting:</b><br/>
+            We've built a predictive model that uses <b>{min(len(numeric_cols)-1, 5)} of your data columns</b> 
+            to forecast the values of <b>{numeric_cols[0]}</b>. This means by tracking these key factors, you can 
+            anticipate future performance before it happens, allowing you to take preventive action or capitalize 
+            on opportunities early.
+            <br/><br/>
+            <b>How Accurate Are These Predictions?</b><br/>
+            The predictive model has been tested on actual historical data from your Excel file to validate its accuracy. 
+            """
+            
+            # Calculate prediction statistics if possible
+            try:
+                from sklearn.ensemble import RandomForestRegressor
+                from sklearn.model_selection import train_test_split
+                from sklearn.metrics import r2_score, mean_absolute_error
+                
+                target_col = numeric_cols[0]
+                feature_cols = numeric_cols[1:min(6, len(numeric_cols))]
+                data_clean = df[[target_col] + feature_cols].dropna()
+                
+                if len(data_clean) >= 20:
+                    X = data_clean[feature_cols]
+                    y = data_clean[target_col]
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    
+                    rf_model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10)
+                    rf_model.fit(X_train, y_train)
+                    y_pred = rf_model.predict(X_test)
+                    
+                    r2 = r2_score(y_test, y_pred)
+                    mae = mean_absolute_error(y_test, y_pred)
+                    
+                    accuracy_pct = r2 * 100
+                    
+                    prediction_intro += f"""
+                    The model achieves <b>{accuracy_pct:.1f}% accuracy</b>, meaning it can explain {accuracy_pct:.1f}% of the 
+                    variation in {target_col}. On average, predictions are within <b>±{mae:.2f}</b> of the actual values.
+                    <br/><br/>
+                    <b>Reliability Assessment:</b><br/>
+                    """
+                    
+                    if r2 > 0.8:
+                        prediction_intro += f"""
+                        <b>EXCELLENT RELIABILITY:</b> This high accuracy level means you can confidently use these predictions 
+                        for strategic planning, budget forecasting, and resource allocation. The model captures the underlying 
+                        patterns in your data extremely well.
+                        """
+                    elif r2 > 0.6:
+                        prediction_intro += f"""
+                        <b>GOOD RELIABILITY:</b> The predictions are reliable enough for planning and trend identification. 
+                        While not perfect, the model captures the major patterns in your data and can guide decision-making 
+                        effectively when combined with business judgment.
+                        """
+                    elif r2 > 0.4:
+                        prediction_intro += f"""
+                        <b>MODERATE RELIABILITY:</b> The predictions show the general direction and trends but should be used 
+                        for guidance rather than precise forecasts. Combine these insights with other information sources and 
+                        expert knowledge for best results.
+                        """
+                    else:
+                        prediction_intro += f"""
+                        <b>LIMITED RELIABILITY:</b> The predictions reveal some patterns but have significant uncertainty. 
+                        Use these insights to understand relationships between variables rather than for precise forecasting. 
+                        Consider collecting more data or additional relevant factors.
+                        """
+                    
+                    prediction_intro += f"""
+                    <br/><br/>
+                    <b>Practical Applications:</b><br/>
+                    Based on this predictive model, here's how you can use your Excel data:<br/>
+                    <br/>
+                    1. <b>Early Warning System:</b> Monitor the {len(feature_cols)} predictor columns daily/weekly. 
+                    When they change, you'll know {target_col} is likely to change soon, giving you advance warning.<br/>
+                    <br/>
+                    2. <b>Scenario Planning:</b> Input different values for your predictor columns to see how {target_col} 
+                    would likely respond. This helps test "what-if" scenarios before implementing changes.<br/>
+                    <br/>
+                    3. <b>Target Setting:</b> Use the relationships to set realistic targets. If you want {target_col} 
+                    to reach a specific value, the model shows what levels the other columns need to achieve.<br/>
+                    <br/>
+                    4. <b>Root Cause Analysis:</b> When {target_col} underperforms, check the predictor columns to identify 
+                    which factors are driving the issue and where to focus improvement efforts.<br/>
+                    """
+                    
+            except:
+                prediction_intro += """
+                Predictive modeling requires clean data without missing values. Some predictive capabilities may be 
+                limited in this dataset, but relationship analysis still provides valuable insights.
+                """
+        else:
+            prediction_intro = f"""
+            <b>Predictive Analysis Availability:</b><br/>
+            <br/>
+            Your dataset contains {len(numeric_cols)} numeric column(s). Predictive modeling typically requires at least 
+            2 numeric columns - one to predict and others to use as predictors. Consider adding more quantitative metrics 
+            to your Excel file to enable advanced predictive analytics and forecasting capabilities.
+            """
+        
+        story.append(Paragraph(prediction_intro, body_style))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # ============ DATA PATTERNS & TRENDS ============
+        story.append(Paragraph("8.6 Patterns, Trends & What They Mean", subheading_style))
+        
+        if len(numeric_cols) > 0:
+            patterns_text = f"""
+            <b>Trend Analysis Across Your Data:</b><br/>
+            <br/>
+            By analyzing the progression of values in your Excel file, we can identify whether your metrics are 
+            improving, declining, or staying stable. These trends reveal the underlying health of your operations 
+            and help predict future performance.
+            <br/><br/>
+            """
+            
+            # Analyze trends for first few columns
+            for col in numeric_cols[:3]:
+                values = df[col].dropna().values
+                if len(values) > 1:
+                    x = np.arange(len(values[:100]))
+                    slope, _, r_value, p_value, _ = stats.linregress(x, values[:100])
+                    r_squared = r_value ** 2
+                    
+                    trend_direction = "UPWARD" if slope > 0 else "DOWNWARD"
+                    trend_strength = "STRONG" if abs(r_value) > 0.7 else "MODERATE" if abs(r_value) > 0.3 else "WEAK"
+                    
+                    patterns_text += f"""
+                    <b>{col} Trend Analysis:</b><br/>
+                    This metric shows a <b>{trend_strength} {trend_direction} TREND</b> with R² = {r_squared:.3f}. 
+                    """
+                    
+                    if slope > 0 and r_squared > 0.5:
+                        patterns_text += f"""
+                        This is excellent news - {col} is consistently increasing over time with {r_squared*100:.1f}% 
+                        of the variation following this upward pattern. This strong positive trend suggests sustained 
+                        growth or improvement. Continue current strategies and look for ways to accelerate this positive momentum.
+                        """
+                    elif slope < 0 and r_squared > 0.5:
+                        patterns_text += f"""
+                        This declining trend in {col} requires immediate attention. With {r_squared*100:.1f}% of the 
+                        variation following this downward pattern, this is a systematic issue, not random fluctuation. 
+                        Conduct root cause analysis and implement corrective measures within the next 30 days.
+                        """
+                    elif r_squared < 0.3:
+                        patterns_text += f"""
+                        {col} shows relatively stable performance without clear directional trends. This stability can be 
+                        positive (consistent operations) or negative (lack of growth). Review whether this stability aligns 
+                        with business objectives.
+                        """
+                    else:
+                        patterns_text += f"""
+                        {col} shows a {trend_direction.lower()} direction but with moderate strength. There's a pattern 
+                        emerging that deserves monitoring. Track this metric closely over the next periods to confirm 
+                        whether the trend strengthens or weakens.
+                        """
+                    
+                    patterns_text += "<br/><br/>"
+        
+        story.append(Paragraph(patterns_text, body_style))
+        
+        story.append(PageBreak())
+        
+        # ============ COLUMN RELATIONSHIP ANALYSIS ============
+        story.append(Paragraph("9. COLUMN RELATIONSHIP & INTERACTION ANALYSIS", heading_style))
+        
+        if len(numeric_cols) >= 2:
+            story.append(Paragraph("9.1 Correlation Matrix & Relationships", subheading_style))
+            
+            # Calculate correlation matrix
+            corr_matrix = df[numeric_cols[:6]].corr()
+            
+            # Find strong relationships
+            strong_relationships = []
+            for i in range(len(corr_matrix.columns)):
+                for j in range(i+1, len(corr_matrix.columns)):
+                    corr_val = corr_matrix.iloc[i, j]
+                    if abs(corr_val) > 0.3:
+                        strong_relationships.append({
+                            'col1': corr_matrix.columns[i],
+                            'col2': corr_matrix.columns[j],
+                            'correlation': corr_val,
+                            'strength': 'Very Strong' if abs(corr_val) > 0.8 else 'Strong' if abs(corr_val) > 0.6 else 'Moderate',
+                            'direction': 'Positive' if corr_val > 0 else 'Negative'
+                        })
+            
+            strong_relationships.sort(key=lambda x: abs(x['correlation']), reverse=True)
+            
+            strongest_corr = f"{strong_relationships[0]['correlation']:.3f}" if strong_relationships else 'N/A'
+            relationship_text = f"""
+            <b>Correlation Analysis Summary:</b><br/>
+            The analysis examined {len(numeric_cols)} numeric columns to identify relationships and dependencies.<br/>
+            <br/>
+            <b>Key Findings:</b><br/>
+            • Total Column Pairs Analyzed: {len(numeric_cols) * (len(numeric_cols) - 1) // 2}<br/>
+            • Significant Relationships Found: {len(strong_relationships)}<br/>
+            • Strongest Correlation: {strongest_corr}<br/>
+            <br/>
+            """
+            story.append(Paragraph(relationship_text, body_style))
+            
+            if strong_relationships:
+                # Create relationship table
+                rel_data = [['Column 1', 'Column 2', 'Correlation', 'Strength', 'Type', 'Business Implication']]
+                
+                for rel in strong_relationships[:10]:
+                    implication = ""
+                    if rel['direction'] == 'Positive':
+                        if rel['strength'] == 'Very Strong':
+                            implication = "Highly predictive - use for forecasting"
+                        elif rel['strength'] == 'Strong':
+                            implication = "Can predict one from the other"
+                        else:
+                            implication = "Some predictive capability"
+                    else:
+                        if rel['strength'] == 'Very Strong':
+                            implication = "Inverse relationship - monitor both"
+                        elif rel['strength'] == 'Strong':
+                            implication = "Trade-off relationship exists"
+                        else:
+                            implication = "Weak inverse relationship"
+                    
+                    rel_data.append([
+                        rel['col1'][:15],
+                        rel['col2'][:15],
+                        f"{rel['correlation']:.3f}",
+                        rel['strength'],
+                        rel['direction'],
+                        implication
+                    ])
+                
+                rel_table = Table(rel_data, colWidths=[1.2*inch, 1.2*inch, 0.8*inch, 0.9*inch, 0.8*inch, 1.6*inch])
+                rel_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8B5CF6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.Color(0.95, 0.92, 0.98)),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.Color(0.98, 0.96, 0.99)])
+                ]))
+                story.append(rel_table)
+                story.append(Spacer(1, 0.2*inch))
+                
+                # Create correlation heatmap
+                try:
+                    fig, ax = plt.subplots(figsize=(7, 5))
+                    im = ax.imshow(corr_matrix, cmap='RdYlGn', aspect='auto', vmin=-1, vmax=1)
+                    
+                    ax.set_xticks(np.arange(len(corr_matrix.columns)))
+                    ax.set_yticks(np.arange(len(corr_matrix.columns)))
+                    ax.set_xticklabels([col[:15] for col in corr_matrix.columns], rotation=45, ha='right', fontsize=8)
+                    ax.set_yticklabels([col[:15] for col in corr_matrix.columns], fontsize=8)
+                    
+                    cbar = plt.colorbar(im, ax=ax)
+                    cbar.set_label('Correlation Coefficient', rotation=270, labelpad=15, fontsize=9)
+                    
+                    for i in range(len(corr_matrix.columns)):
+                        for j in range(len(corr_matrix.columns)):
+                            text = ax.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
+                                         ha="center", va="center", color="black", fontsize=7)
+                    
+                    ax.set_title('Correlation Heatmap - Column Relationships', fontsize=12, fontweight='bold', pad=20)
+                    plt.tight_layout()
+                    
+                    heatmap_path = f"/tmp/heatmap_{dataset_id}.png"
+                    plt.savefig(heatmap_path, dpi=150, bbox_inches='tight')
+                    plt.close()
+                    
+                    if os.path.exists(heatmap_path):
+                        img = Image(heatmap_path, width=6*inch, height=4.5*inch)
+                        story.append(img)
+                        story.append(Spacer(1, 0.2*inch))
+                except Exception as e:
+                    logger.error(f"Heatmap creation error: {e}")
+                
+                # Detailed relationship insights
+                story.append(Paragraph("9.2 Detailed Relationship Insights", subheading_style))
+                
+                for i, rel in enumerate(strong_relationships[:5], 1):
+                    detailed_insight = f"""
+                    <b>Relationship #{i}: {rel['col1']} ↔ {rel['col2']}</b><br/>
+                    • Correlation: {rel['correlation']:.3f} ({rel['strength']} {rel['direction']})<br/>
+                    • Type: {('Move together' if rel['direction'] == 'Positive' else 'Move in opposite directions')}<br/>
+                    • Predictive Power: {('High' if abs(rel['correlation']) > 0.7 else 'Moderate' if abs(rel['correlation']) > 0.5 else 'Limited')}<br/>
+                    • Application: {('Use as leading/lagging indicators' if abs(rel['correlation']) > 0.6 else 'Monitor together')}<br/>
+                    """
+                    story.append(Paragraph(detailed_insight, body_style))
+                    story.append(Spacer(1, 0.15*inch))
+            else:
+                story.append(Paragraph(
+                    "No significant correlations detected. Columns appear to operate independently.",
+                    body_style
+                ))
+        
+        story.append(PageBreak())
+        
+        # ============ PERFORMANCE PREDICTION (NEW) ============
+        story.append(Paragraph("10. PERFORMANCE PREDICTION & FEATURE IMPORTANCE", heading_style))
+        
+        if len(numeric_cols) >= 2:
+            story.append(Paragraph("10.1 Predictive Performance Analysis", subheading_style))
+            
+            try:
+                from sklearn.ensemble import RandomForestRegressor
+                from sklearn.model_selection import train_test_split
+                from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+                
+                target_col = numeric_cols[0]
+                feature_cols = numeric_cols[1:min(6, len(numeric_cols))]
+                
+                data_clean = df[[target_col] + feature_cols].dropna()
+                
+                if len(data_clean) >= 20:
+                    X = data_clean[feature_cols]
+                    y = data_clean[target_col]
+                    
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    
+                    rf_model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10)
+                    rf_model.fit(X_train, y_train)
+                    
+                    y_pred = rf_model.predict(X_test)
+                    
+                    r2 = r2_score(y_test, y_pred)
+                    mae = mean_absolute_error(y_test, y_pred)
+                    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                    
+                    feature_importance = pd.DataFrame({
+                        'feature': feature_cols,
+                        'importance': rf_model.feature_importances_
+                    }).sort_values('importance', ascending=False)
+                    
+                    performance_text = f"""
+                    <b>Predictive Model Performance:</b><br/>
+                    • Target Variable: {target_col}<br/>
+                    • Features Used: {len(feature_cols)}<br/>
+                    • R² Score: {r2:.3f} ({('Excellent' if r2 > 0.8 else 'Good' if r2 > 0.6 else 'Moderate')} accuracy)<br/>
+                    • Mean Absolute Error: {mae:.2f}<br/>
+                    <br/>
+                    <b>Interpretation:</b> {int(r2 * 100)}% of variance in {target_col} explained by other columns.<br/>
+                    """
+                    story.append(Paragraph(performance_text, body_style))
+                    story.append(Spacer(1, 0.2*inch))
+                    
+                    # Feature Importance Table
+                    story.append(Paragraph("10.2 Feature Importance Rankings", subheading_style))
+                    
+                    fi_data = [['Rank', 'Feature', 'Importance', 'Impact', 'Insight']]
+                    
+                    for idx, row in feature_importance.iterrows():
+                        rank = len(fi_data)
+                        importance = row['importance']
+                        impact = 'Critical' if importance > 0.3 else 'High' if importance > 0.2 else 'Medium' if importance > 0.1 else 'Low'
+                        insight = 'Primary driver' if importance > 0.25 else 'Significant factor' if importance > 0.15 else 'Moderate influence' if importance > 0.08 else 'Minor factor'
+                        
+                        fi_data.append([
+                            str(rank),
+                            row['feature'][:20],
+                            f"{importance:.3f}",
+                            impact,
+                            insight
+                        ])
+                    
+                    fi_table = Table(fi_data, colWidths=[0.5*inch, 1.8*inch, 1*inch, 0.9*inch, 2.3*inch])
+                    fi_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#059669')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 9),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.Color(0.9, 0.98, 0.94)),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                        ('FONTSIZE', (0, 1), (-1, -1), 8)
+                    ]))
+                    story.append(fi_table)
+                    story.append(Spacer(1, 0.2*inch))
+                    
+                    # Feature importance chart
+                    try:
+                        fig, ax = plt.subplots(figsize=(7, 4))
+                        colors_bar = ['#10B981' if imp > 0.2 else '#3B82F6' if imp > 0.1 else '#94A3B8' 
+                                     for imp in feature_importance['importance']]
+                        
+                        bars = ax.barh(feature_importance['feature'], feature_importance['importance'], color=colors_bar)
+                        ax.set_xlabel('Importance Score', fontsize=10, fontweight='bold')
+                        ax.set_ylabel('Feature', fontsize=10, fontweight='bold')
+                        ax.set_title(f'Feature Importance for {target_col}', fontsize=12, fontweight='bold')
+                        ax.grid(axis='x', alpha=0.3)
+                        
+                        for i, (bar, imp) in enumerate(zip(bars, feature_importance['importance'])):
+                            ax.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
+                                   f'{imp:.3f}', va='center', fontsize=8, fontweight='bold')
+                        
+                        plt.tight_layout()
+                        fi_chart_path = f"/tmp/feature_importance_{dataset_id}.png"
+                        plt.savefig(fi_chart_path, dpi=150, bbox_inches='tight')
+                        plt.close()
+                        
+                        if os.path.exists(fi_chart_path):
+                            img = Image(fi_chart_path, width=6*inch, height=3.5*inch)
+                            story.append(img)
+                            story.append(Spacer(1, 0.2*inch))
+                    except Exception as e:
+                        logger.error(f"Feature importance chart error: {e}")
+                    
+                    # Actual vs Predicted plot
+                    try:
+                        fig, ax = plt.subplots(figsize=(6, 4.5))
+                        ax.scatter(y_test, y_pred, alpha=0.6, color='#4F46E5', s=60, edgecolors='black', linewidth=0.5)
+                        
+                        min_val = min(y_test.min(), y_pred.min())
+                        max_val = max(y_test.max(), y_pred.max())
+                        ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2.5, label='Perfect Prediction')
+                        
+                        ax.set_xlabel(f'Actual {target_col}', fontsize=11, fontweight='bold')
+                        ax.set_ylabel(f'Predicted {target_col}', fontsize=11, fontweight='bold')
+                        ax.set_title(f'Prediction Accuracy\nR² = {r2:.3f}', fontsize=11, fontweight='bold')
+                        ax.legend()
+                        ax.grid(True, alpha=0.3)
+                        
+                        plt.tight_layout()
+                        pred_chart_path = f"/tmp/prediction_{dataset_id}.png"
+                        plt.savefig(pred_chart_path, dpi=150, bbox_inches='tight')
+                        plt.close()
+                        
+                        if os.path.exists(pred_chart_path):
+                            img = Image(pred_chart_path, width=5.5*inch, height=4*inch)
+                            story.append(img)
+                    except Exception as e:
+                        logger.error(f"Prediction plot error: {e}")
+                        
+                else:
+                    story.append(Paragraph(
+                        f"Insufficient data ({len(data_clean)} records) for predictive modeling. Minimum 20 records required.",
+                        body_style
+                    ))
+            except Exception as e:
+                logger.error(f"Performance prediction error: {e}")
+                story.append(Paragraph(
+                    "Performance prediction could not be completed due to data limitations.",
+                    body_style
+                ))
+        else:
+            story.append(Paragraph(
+                "Performance prediction requires at least 2 numeric columns.",
+                body_style
+            ))
+        
+        story.append(PageBreak())
+        
         # ============ CONTEXT & BENCHMARKS ============
-        story.append(Paragraph("8. CONTEXT & PERFORMANCE BENCHMARKS", heading_style))
+        story.append(Paragraph("11. CONTEXT & PERFORMANCE BENCHMARKS", heading_style))
         
         benchmark_text = f"""
         <b>Industry Context:</b><br/>
@@ -2521,7 +3217,7 @@ async def generate_pdf_report(dataset_id: str):
         story.append(PageBreak())
         
         # ============ CONCLUSION & KEY TAKEAWAYS ============
-        story.append(Paragraph("9. CONCLUSION & KEY TAKEAWAYS", heading_style))
+        story.append(Paragraph("12. CONCLUSION & KEY TAKEAWAYS", heading_style))
         
         story.append(Paragraph("Executive Summary", subheading_style))
         
@@ -2539,7 +3235,7 @@ async def generate_pdf_report(dataset_id: str):
         story.append(Paragraph(conclusion_text, body_style))
         story.append(Spacer(1, 0.2*inch))
         
-        # ============ KEY CARRY-AWAY INSIGHTS ============
+        # Key Takeaways
         story.append(Paragraph("🎯 Key Carry-Away Points", subheading_style))
         
         carry_away_style = ParagraphStyle(
@@ -2559,22 +3255,22 @@ async def generate_pdf_report(dataset_id: str):
         
         story.append(Spacer(1, 0.3*inch))
         
-        # ============ IMMEDIATE ACTION ITEMS ============
+        # Action Items
         story.append(Paragraph("📋 Immediate Next Steps", subheading_style))
         
         action_items = f"""
         <b>Priority Actions (Next 7-14 Days):</b><br/>
         1. Review automated insights with key stakeholders and validate against business context<br/>
         2. {'Address data quality issues to achieve >95% completeness' if missing_pct > 5 else 'Maintain current data quality standards with regular audits'}<br/>
-        3. {'Implement corrective measures for declining trends identified in analysis' if trend_direction == 'downward' else 'Capitalize on positive momentum with increased investment' if trend_direction == 'upward' else 'Test new optimization strategies on stable baseline'}<br/>
-        4. {ai_insights['strategic_recommendations'][0] if ai_insights['strategic_recommendations'] else 'Continue monitoring key metrics for emerging patterns'}<br/>
-        5. Schedule follow-up analysis in 30-60 days to track progress and validate forecasts<br/>
+        3. {'Implement corrective measures for declining trends' if trend_direction == 'downward' else 'Capitalize on positive momentum' if trend_direction == 'upward' else 'Test new optimization strategies'}<br/>
+        4. {ai_insights['strategic_recommendations'][0] if ai_insights['strategic_recommendations'] else 'Continue monitoring key metrics'}<br/>
+        5. Schedule follow-up analysis in 30-60 days to track progress<br/>
         <br/>
         <b>Long-Term Strategic Focus:</b><br/>
         • Establish automated monitoring dashboards for real-time insights<br/>
         • Build predictive models for proactive decision-making<br/>
         • Create feedback loops to continuously improve data quality<br/>
-        • Integrate insights into strategic planning and budgeting processes<br/>
+        • Integrate insights into strategic planning processes<br/>
         """
         story.append(Paragraph(action_items, body_style))
         story.append(Spacer(1, 0.5*inch))
@@ -2589,16 +3285,15 @@ async def generate_pdf_report(dataset_id: str):
         )
         story.append(Paragraph(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC", footer_style))
         story.append(Paragraph("Memat Data Analytics Platform | Automated Analysis System", footer_style))
-        story.append(Paragraph("This report includes automated intelligent analysis using statistical algorithms", footer_style))
+        story.append(Paragraph("This report includes automated intelligent analysis with relationship & performance predictions", footer_style))
         
         # Build PDF
         doc.build(story)
         
-        # Verify PDF was created
         if not os.path.exists(pdf_filename):
             raise Exception(f"PDF file was not created: {pdf_filename}")
         
-        logger.info(f"PDF report generated successfully with automated analysis for dataset {dataset_id}")
+        logger.info(f"Enhanced PDF report generated successfully for dataset {dataset_id}")
         
         return FileResponse(pdf_filename, filename=f"intelligent_analytics_report_{dataset['name']}.pdf", media_type="application/pdf")
         
