@@ -4,23 +4,25 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 import numpy as np
 from scipy import stats
-from server import db, get_current_user, serialize_for_json  # Import from your main server file
+# Ensure you import db correctly based on your file structure
+from server import db, get_current_user 
 
 router = APIRouter(prefix="/api/comparison", tags=["comparison"])
 
+
+
 class ComparisonRequest(BaseModel):
     dataset_ids: List[str]
-    
-class ComparisonResult(BaseModel):
-    summary: Dict[str, Any]
-    schema_diff: Dict[str, Any]
-    numeric_comparison: List[Dict[str, Any]]
-    categorical_comparison: List[Dict[str, Any]]
+    limit: int = 50
 
-@router.post("/analyze", response_model=ComparisonResult)
+# ... keep your /preview endpoint as is ...
+
+
+
+@router.post("/analyze")
 async def compare_datasets(request: ComparisonRequest, user: dict = Depends(get_current_user)):
     """
-    Intelligently compare 2 or more datasets.
+    Advanced Statistical Comparison: Drift, Distributions, and Data Quality.
     """
     if len(request.dataset_ids) < 2:
         raise HTTPException(status_code=400, detail="Select at least 2 datasets to compare")
@@ -34,101 +36,121 @@ async def compare_datasets(request: ComparisonRequest, user: dict = Depends(get_
         data_doc = await db.dataset_data.find_one({"dataset_id": ds_id})
         
         if not meta or not data_doc:
-            raise HTTPException(status_code=404, detail=f"Dataset {ds_id} not found")
+            continue
             
         datasets_meta.append(meta)
         df = pd.DataFrame(data_doc['data'])
-        # Add a source column for tracking
-        df['_source_dataset'] = meta.get('title', meta['name'])
-        data_frames[meta.get('title', meta['name'])] = df
+        name = meta.get('title', meta['name'])
+        data_frames[name] = df
+
+    if len(data_frames) < 2:
+        raise HTTPException(status_code=400, detail="Could not load datasets")
 
     # 2. Schema Comparison
-    all_columns = set()
-    col_map = {}
-    for name, df in data_frames.items():
-        cols = set(df.columns) - {'_source_dataset'}
-        all_columns.update(cols)
-        col_map[name] = cols
-        
+    col_map = {name: set(df.columns) for name, df in data_frames.items()}
     common_columns = set.intersection(*col_map.values())
     unique_columns = {name: list(cols - common_columns) for name, cols in col_map.items()}
 
-    # 3. Numeric Comparison (on common columns)
+    # 3. Data Quality Comparison (New Section)
+    quality_comparison = []
+    for name, df in data_frames.items():
+        quality_comparison.append({
+            "dataset": name,
+            "total_rows": len(df),
+            "missing_cells": int(df.isnull().sum().sum()),
+            "missing_percent": round((df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100, 2),
+            "duplicate_rows": int(df.duplicated().sum())
+        })
+
+    # 4. Numeric Deep Dive (KS Test & Histograms)
     numeric_comparison = []
-    
-    # Get common numeric columns
     first_df_name = list(data_frames.keys())[0]
     first_df = data_frames[first_df_name]
-    common_numeric = [c for c in common_columns if pd.api.types.is_numeric_dtype(first_df[c])]
+    
+    # Identify numeric columns present in ALL datasets
+    common_numeric = []
+    for col in common_columns:
+        # Check if numeric in ALL frames
+        is_numeric_all = all(pd.api.types.is_numeric_dtype(df[col]) for df in data_frames.values())
+        if is_numeric_all:
+            common_numeric.append(col)
     
     for col in common_numeric:
-        col_stats = {
-            "column": col,
-            "metrics": []
-        }
-        
-        # Calculate stats for this column across all datasets
+        col_data = {}
         values_list = []
-        for name, df in data_frames.items():
-            if col in df:
-                series = df[col].dropna()
-                values_list.append(series.values)
-                
-                stat = {
-                    "dataset": name,
-                    "mean": float(series.mean()),
-                    "std": float(series.std()),
-                    "min": float(series.min()),
-                    "max": float(series.max()),
-                    "count": int(len(series))
-                }
-                col_stats["metrics"].append(stat)
         
-        # Intelligent Insight: ANOVA / T-Test to check if difference is significant
+        # Collect values for this column from all datasets
+        for name, df in data_frames.items():
+            clean_series = df[col].dropna()
+            values_list.append(clean_series)
+            col_data[name] = {
+                "mean": float(clean_series.mean()),
+                "std": float(clean_series.std()),
+                "min": float(clean_series.min()),
+                "max": float(clean_series.max()),
+                "zeros": int((clean_series == 0).sum())
+            }
+
+        # --- A. Statistical Drift Test (KS Test) ---
+        # We compare the first two datasets as a baseline
+        drift_status = "Stable"
+        p_value = 1.0
         if len(values_list) >= 2:
             try:
-                # One-way ANOVA
-                f_stat, p_val = stats.f_oneway(*values_list)
-                col_stats["statistical_test"] = {
-                    "test": "ANOVA",
-                    "p_value": float(p_val),
-                    "significant": float(p_val) < 0.05,
-                    "insight": "Significant difference detected" if p_val < 0.05 else "Distributions are similar"
-                }
+                # KS Test compares the shape of distributions
+                # Null hypothesis: samples are from the same distribution
+                # p < 0.05 => Reject null => Distributions are DIFFERENT
+                stat, p_value = stats.ks_2samp(values_list[0], values_list[1])
+                if p_value < 0.05:
+                    drift_status = "High Drift Detected"
+                elif p_value < 0.15:
+                    drift_status = "Moderate Drift"
             except:
-                col_stats["statistical_test"] = None
+                pass
 
-        numeric_comparison.append(col_stats)
-
-    # 4. Categorical Comparison (Top 5 values)
-    categorical_comparison = []
-    common_cat = [c for c in common_columns if not pd.api.types.is_numeric_dtype(first_df[c])]
-    
-    for col in common_cat:
-        col_stats = {"column": col, "distributions": []}
-        
-        for name, df in data_frames.items():
-            if col in df:
-                # Get top 5 value counts
-                vc = df[col].value_counts(normalize=True).head(5)
-                dist_data = [{"value": str(k), "percentage": float(v)*100} for k, v in vc.items()]
+        # --- B. Histogram Generation (For Visual Comparison) ---
+        # Create common bins so datasets can be compared side-by-side
+        try:
+            all_values = np.concatenate(values_list)
+            hist_counts = {}
+            if len(all_values) > 0:
+                # Calculate 10 bins across the global range
+                counts, bin_edges = np.histogram(all_values, bins=10)
                 
-                col_stats["distributions"].append({
-                    "dataset": name,
-                    "top_values": dist_data
-                })
-        categorical_comparison.append(col_stats)
+                for i, (name, df) in enumerate(data_frames.items()):
+                    # Re-bin each dataset using the global edges
+                    ds_counts, _ = np.histogram(df[col].dropna(), bins=bin_edges)
+                    # Normalize to percentage to compare datasets of different sizes
+                    total = len(df)
+                    hist_counts[name] = [int(c)/total*100 if total > 0 else 0 for c in ds_counts]
+                
+                bin_labels = [f"{int(bin_edges[i])}-{int(bin_edges[i+1])}" for i in range(len(bin_edges)-1)]
+            else:
+                bin_labels = []
+        except:
+            hist_counts = {}
+            bin_labels = []
+
+        numeric_comparison.append({
+            "column": col,
+            "stats": col_data,
+            "drift_analysis": {
+                "status": drift_status,
+                "test": "Kolmogorov-Smirnov",
+                "p_value": float(p_value)
+            },
+            "histogram": {
+                "labels": bin_labels,
+                "datasets": hist_counts
+            }
+        })
 
     return {
         "summary": {
-            "datasets_compared": [d.get('title', d['name']) for d in datasets_meta],
-            "total_rows_combined": sum(len(df) for df in data_frames.values()),
-            "common_columns_count": len(common_columns)
+            "datasets": [d.get('title', d['name']) for d in datasets_meta],
+            "common_cols": len(common_columns)
         },
-        "schema_diff": {
-            "common_columns": list(common_columns),
-            "unique_columns_per_dataset": unique_columns
-        },
-        "numeric_comparison": numeric_comparison,
-        "categorical_comparison": categorical_comparison
+        "quality_comparison": quality_comparison,
+        "schema_diff": unique_columns,
+        "numeric_comparison": numeric_comparison
     }
