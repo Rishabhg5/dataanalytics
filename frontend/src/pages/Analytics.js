@@ -231,6 +231,73 @@ export default function Analytics() {
     }
   };
 
+  // ... existing code ...
+
+  const handleSaveToReport = async () => {
+    if (!selectedDataset) return;
+    
+    // Determine title and data based on what view is active
+    let chartPayload = null;
+
+    if (showAutoCharts && autoCharts) {
+        toast.error("Please switch to 'Custom Chart Builder' to save specific configurations, or save individual auto-charts.");
+        return; 
+    } 
+    
+    // Capture Custom Chart State
+    if (!showAutoCharts && datasetData) {
+        if (yAxisColumns.length === 0) {
+            toast.error("Please select at least one metric to save.");
+            return;
+        }
+
+        chartPayload = {
+            dataset_id: selectedDataset,
+            title: `${selectedChartType.toUpperCase()} - ${yAxisColumns.join(' vs ')}`,
+            chart_type: selectedChartType,
+            description: `Analysis of ${yAxisColumns.join(', ')} by ${xAxisColumn}`,
+            config: {
+                xAxis: xAxisColumn,
+                yAxis: yAxisColumns,
+                colors: COLORS 
+            },
+            // CRITICAL: We save the *actual data* so the report works even if dataset changes later
+            data_snapshot: datasetData.data.slice(0, 50) 
+        };
+    }
+
+    if (chartPayload) {
+        try {
+            await axios.post(`${API}/reports/save-chart`, chartPayload);
+            toast.success("Chart saved to Reports successfully!");
+        } catch (error) {
+            console.error("Save error:", error);
+            toast.error("Failed to save chart.");
+        }
+    }
+  };
+  const handleSaveAutoChart = async (chart) => {
+    try {
+      const payload = {
+        dataset_id: selectedDataset,
+        title: chart.title,
+        chart_type: chart.type,
+        description: chart.insight || chart.description,
+        config: {
+            xAxis: chart.x_axis || chart.label_column, // Handle different keys
+            yAxis: chart.y_axis ? (Array.isArray(chart.y_axis) ? chart.y_axis : [chart.y_axis]) : [chart.value_column]
+        },
+        data_snapshot: chart.data
+      };
+
+      await axios.post(`${API}/reports/save-chart`, payload);
+      toast.success("Insight chart saved to report!");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to save chart");
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Progress Indicator */}
@@ -346,6 +413,27 @@ export default function Analytics() {
                       {chart.type}
                     </span>
                   </div>
+                  {/* Inside autoCharts.charts.map */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900 mb-1">{chart.title}</h3>
+                      <p className="text-sm text-slate-600">{chart.description}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full uppercase h-fit">
+                        {chart.type}
+                      </span>
+                      {/* NEW SAVE BUTTON */}
+                      <button
+                        onClick={() => handleSaveAutoChart(chart)}
+                        className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
+                        title="Save to Report"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                      </button>
+                    </div>
+                  </div>
+                  
                   
                   <ResponsiveContainer width="100%" height={350}>
                     {chart.type === 'bar' && (
@@ -429,6 +517,20 @@ export default function Analytics() {
           {!showAutoCharts && (
             <>
               {/* Chart Customization */}
+              {/* Inside the !showAutoCharts block, near the chart header */}
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  {CHART_TYPES.find(t => t.value === selectedChartType)?.label || 'Chart'}
+                </h3>
+
+                <button
+                  onClick={handleSaveToReport}
+                  className="flex items-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                  Save to Report
+                </button>
+              </div>
               <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-6">
                 <h3 className="text-lg font-semibold text-slate-900 mb-4">Customize Your Visualization</h3>
                 

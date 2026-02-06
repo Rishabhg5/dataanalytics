@@ -37,6 +37,7 @@ import bcrypt
 import hashlib
 
 
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -83,6 +84,17 @@ ROLE_PERMISSIONS = {
     "analyst": ["read", "write", "export"],
     "viewer": ["read"]
 }
+
+
+class SavedChart(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dataset_id: str
+    title: str
+    chart_type: str  # 'bar', 'line', 'pie', etc.
+    description: Optional[str] = None
+    config: Dict[str, Any] # Stores x_axis, y_axis, colors, etc.
+    data_snapshot: List[Dict[str, Any]] # Stores the actual rows used in the chart
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -151,6 +163,7 @@ class AnalyticsRequest(BaseModel):
     analysis_type: str
     columns: Optional[List[str]] = None
     parameters: Optional[Dict[str, Any]] = None
+    
 
 class Dashboard(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -367,6 +380,37 @@ def generate_fallback_insight(prompt: str) -> str:
 # ============================================
 # API ROUTES (SIMPLIFIED)
 # ============================================
+
+# ===================== NEW ROUTES =====================
+
+@api_router.post("/reports/save-chart")
+async def save_chart_snapshot(chart: SavedChart, user: dict = Depends(get_current_user)):
+    """Save a specific chart configuration and data snapshot"""
+    doc = chart.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.saved_charts.insert_one(doc)
+    
+    if user:
+        await log_audit(user["id"], user["email"], "save_chart", "report", chart.id)
+    
+    return {"success": True, "id": chart.id}
+
+@api_router.get("/reports/{dataset_id}/saved-charts")
+async def get_saved_charts(dataset_id: str, user: dict = Depends(get_current_user)):
+    """Get all saved charts for a specific dataset"""
+    charts = await db.saved_charts.find(
+        {"dataset_id": dataset_id}, 
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return charts
+
+@api_router.delete("/reports/chart/{chart_id}")
+async def delete_saved_chart(chart_id: str, user: dict = Depends(get_current_user)):
+    """Delete a saved chart"""
+    await db.saved_charts.delete_one({"id": chart_id})
+    return {"success": True}
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register_user(user_data: UserCreate):
@@ -1048,7 +1092,8 @@ async def upload_dataset(file: UploadFile = File(...), title: str = None, user: 
                 df = pd.read_csv(io.BytesIO(contents), delimiter=',')
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format. Supported: CSV, Excel, JSON, TXT")
-        
+
+
         # Store data in MongoDB
         dataset_id = str(uuid.uuid4())
         data_records = df.to_dict('records')
@@ -1762,8 +1807,77 @@ async def generate_auto_charts(dataset_id: str, user: dict = Depends(get_current
     except Exception as e:
         logger.error(f"Auto-chart generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 @api_router.get("/reports/{dataset_id}/pdf")
+def create_chart_image_from_config(chart_data: dict, chart_id: str) -> str:
+    """Re-create a saved frontend chart using Matplotlib for the PDF"""
+    try:
+        df = pd.DataFrame(chart_data['data_snapshot'])
+        config = chart_data['config']
+        chart_type = chart_data['chart_type']
+        
+        plt.figure(figsize=(8, 4))
+        
+        # 1. Handle Bar Charts
+        if chart_type == 'bar':
+            x_col = config.get('xAxis')
+            y_cols = config.get('yAxis', [])
+            
+            # Matplotlib requires numeric positions
+            x_pos = np.arange(len(df))
+            width = 0.8 / len(y_cols) if y_cols else 0.8
+            
+            for i, col in enumerate(y_cols):
+                if col in df.columns:
+                    plt.bar(x_pos + i*width, df[col], width=width, label=col, alpha=0.7)
+            
+            plt.xticks(x_pos + width/2, df[x_col].astype(str), rotation=45, ha='right')
+            plt.legend()
+            
+        # 2. Handle Line/Area Charts (treated as Line for PDF clarity)
+        elif chart_type in ['line', 'area']:
+            x_col = config.get('xAxis')
+            y_cols = config.get('yAxis', [])
+            
+            for col in y_cols:
+                if col in df.columns:
+                    plt.plot(df[x_col].astype(str), df[col], marker='o', label=col)
+            
+            plt.xticks(rotation=45)
+            plt.legend()
+
+        # 3. Handle Pie Charts
+        elif chart_type == 'pie':
+            label_col = config.get('xAxis') # We store label key in xAxis
+            value_col = config.get('yAxis')[0]
+            
+            # Limit to top 10 slices to prevent clutter
+            df_pie = df.head(10)
+            plt.pie(df_pie[value_col], labels=df_pie[label_col], autopct='%1.1f%%')
+            
+        # 4. Handle Scatter Charts
+        elif chart_type == 'scatter':
+            x_col = config.get('xAxis')
+            y_col = config.get('yAxis')[0] # Scatter usually has 2 numeric axes stored here
+            # Note: Your frontend scatter config might differ, adjust keys if needed
+            plt.scatter(df[x_col], df[y_col])
+            plt.xlabel(x_col)
+            plt.ylabel(y_col)
+
+        plt.title(chart_data.get('title', 'Saved Chart'))
+        plt.tight_layout()
+        
+        # Save to temp file
+        filename = f"/tmp/saved_chart_{chart_id}.png"
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        plt.close()
+        return filename
+        
+    except Exception as e:
+        logger.error(f"Error recreating saved chart {chart_id}: {e}")
+        return None
 async def generate_pdf_report(dataset_id: str):
     """Generate comprehensive PDF report with AI-style automated analysis, executive summary, KPIs, visualizations, intelligent recommendations, relationship analysis, and performance predictions"""
     try:
@@ -3287,6 +3401,39 @@ async def generate_pdf_report(dataset_id: str):
         story.append(Paragraph("Memat Data Analytics Platform | Automated Analysis System", footer_style))
         story.append(Paragraph("This report includes automated intelligent analysis with relationship & performance predictions", footer_style))
         
+        # ============ SECTION 13: USER SAVED CHARTS ============
+        # Fetch saved charts for this dataset
+        saved_charts = await db.saved_charts.find({"dataset_id": dataset_id}).sort("created_at", -1).to_list(100)
+        
+        if saved_charts:
+            story.append(PageBreak())
+            story.append(Paragraph("13. USER SAVED VISUALIZATIONS", heading_style))
+            story.append(Paragraph("This section contains specific views and charts you explicitly saved during your analysis.", body_style))
+            story.append(Spacer(1, 0.2*inch))
+            
+            for chart in saved_charts:
+                # Add Title
+                story.append(Paragraph(chart['title'], subheading_style))
+                
+                # Add Description if exists
+                if chart.get('description'):
+                    story.append(Paragraph(chart['description'], body_style))
+                
+                # Re-create and Add Image
+                img_path = create_chart_image_from_config(chart, chart['id'])
+                if img_path and os.path.exists(img_path):
+                    img = Image(img_path, width=6*inch, height=3.5*inch)
+                    story.append(img)
+                
+                # Add Metadata (Date)
+                saved_date = datetime.fromisoformat(chart['created_at']).strftime('%Y-%m-%d %H:%M')
+                story.append(Paragraph(f"<i>Saved on: {saved_date}</i>", 
+                                     ParagraphStyle('Caption', parent=styles['Normal'], fontSize=8, textColor=colors.grey)))
+                
+                story.append(Spacer(1, 0.3*inch))
+        
+
+
         # Build PDF
         doc.build(story)
         

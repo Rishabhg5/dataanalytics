@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -13,14 +13,14 @@ import AIInsights from './pages/AIInsights';
 import Reports from './pages/Reports';
 import UserManagement from './pages/UserManagement';
 import AuditLogs from './pages/AuditLogs';
-import { Toaster } from '@/components/ui/sonner';
-import DataComparison from './pages/DataComparison';
-import '@/App.css';
+import { Toaster } from './components/ui/sonner';
+//import DataComparison from './pages/DataComparison';
+import './App.css';
 
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <HashRouter>
         <Routes>
           {/* Auth route - no layout */}
           <Route path="/login" element={<Login />} />
@@ -36,7 +36,7 @@ function App() {
             <Route path="insights" element={<Insights />} />
             <Route path="ai-insights" element={<AIInsights />} />
             <Route path="reports" element={<Reports />} />
-            <Route path="comparison" element={<DataComparison />} />
+            {/* <Route path="comparison" element={<DataComparison />} /> */}
             
             {/* Admin routes */}
             <Route path="users" element={<UserManagement />} />
@@ -53,7 +53,7 @@ function App() {
             </Route>
           </Route>
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
       <Toaster position="top-right" />
     </AuthProvider>
   );

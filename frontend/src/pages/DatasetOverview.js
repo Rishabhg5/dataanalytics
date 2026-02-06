@@ -22,6 +22,7 @@ import {
 } from 'chart.js';
 import { Bar, Pie, Line } from 'react-chartjs-2';
 
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -127,9 +128,40 @@ export default function DatasetOverview() {
     { path: `/dataset/${datasetId}/reports`, label: 'Reports', icon: FileText },
   ];
 
+  // =========================================================================
+  // FIX: Early returns moved UP so they block calculations if data is missing
+  // =========================================================================
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600 font-medium">Loading dataset...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dataset) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Database className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-600 font-medium text-lg">Dataset not found</p>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // CALCULATIONS (Safe to run now because we verified dataset exists above)
+  // =========================================================================
+
   // Calculate real missing values percentage
   const calculateMissingValues = () => {
-    if (!datasetData || !datasetData.data) return 0;
+    // Extra safety check
+    if (!datasetData || !datasetData.data || !dataset) return 0;
     
     const totalCells = datasetData.data.length * dataset.columns;
     let missingCells = 0;
@@ -143,6 +175,7 @@ export default function DatasetOverview() {
       });
     });
     
+    if (totalCells === 0) return 0;
     return ((missingCells / totalCells) * 100).toFixed(1);
   };
 
@@ -155,13 +188,15 @@ export default function DatasetOverview() {
   // Generate column type distribution from real data
   const generateColumnTypeDistribution = () => {
     const types = {};
-    Object.values(dataset?.column_types || {}).forEach(type => {
-      const simplifiedType = type.includes('int') || type.includes('float') ? 'Numeric' :
-                            type.includes('object') || type.includes('string') ? 'Text' :
-                            type.includes('datetime') || type.includes('date') ? 'DateTime' :
-                            'Other';
-      types[simplifiedType] = (types[simplifiedType] || 0) + 1;
-    });
+    if (dataset?.column_types) {
+      Object.values(dataset.column_types).forEach(type => {
+        const simplifiedType = type.includes('int') || type.includes('float') ? 'Numeric' :
+                              type.includes('object') || type.includes('string') ? 'Text' :
+                              type.includes('datetime') || type.includes('date') ? 'DateTime' :
+                              'Other';
+        types[simplifiedType] = (types[simplifiedType] || 0) + 1;
+      });
+    }
     return types;
   };
 
@@ -369,28 +404,6 @@ export default function DatasetOverview() {
     if (!dataset) return '0';
     return (dataset.rows * dataset.columns * 8 / 1024 / 1024).toFixed(1);
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-600 font-medium">Loading dataset...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!dataset) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Database className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-600 font-medium text-lg">Dataset not found</p>
-        </div>
-      </div>
-    );
-  }
 
   const isOverviewPage = location.pathname === `/dataset/${datasetId}/overview`;
 

@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { FileDown, Trash2, Calendar, ChevronRight, Clock, History, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+const COLORS = ['#4F46E5', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -13,11 +15,24 @@ export default function Reports() {
   const [reportHistory, setReportHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(null);
+  const [savedCharts, setSavedCharts] = useState(null) ;
 
   useEffect(() => {
     fetchDatasets();
     fetchReportHistory();
+    fetchSavedCharts();
   }, [datasetId]);
+
+
+const fetchSavedCharts = async () => {
+    if (!datasetId) return; // Only fetch if we are inside a specific dataset view
+    try {
+        const response = await axios.get(`${API}/reports/${datasetId}/saved-charts`);
+        setSavedCharts(response.data);
+    } catch (error) {
+        console.error("Error fetching saved charts:", error);
+    }
+  };
 
   const fetchDatasets = async () => {
     try {
@@ -233,6 +248,114 @@ export default function Reports() {
               </div>
             </div>
           )}
+          {/* === SAVED CHARTS SECTION START === */}
+          {savedCharts && savedCharts.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-indigo-600" />
+                  <h3 className="font-semibold text-slate-900">Saved Chart Snapshots ({savedCharts.length})</h3>
+                </div>
+                <p className="text-sm text-slate-600 mt-1">Visualizations you saved from the Analytics dashboard</p>
+              </div>
+              
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {savedCharts.map((chart) => (
+                  <div key={chart.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    {/* Chart Header */}
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h4 className="font-bold text-slate-800">{chart.title}</h4>
+                          <p className="text-xs text-slate-500">Saved: {new Date(chart.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-1 rounded uppercase">
+                          {chart.chart_type}
+                        </span>
+                    </div>
+
+                    {/* Chart Render Area */}
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                          {/* BAR CHART */}
+                          {chart.chart_type === 'bar' && (
+                            <BarChart data={chart.data_snapshot}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey={chart.config.xAxis} hide />
+                              <YAxis />
+                              <Tooltip />
+                              {chart.config.yAxis.map((col, i) => (
+                                <Bar key={col} dataKey={col} fill={COLORS[i % COLORS.length]} />
+                              ))}
+                            </BarChart>
+                          )}
+
+                          {/* LINE CHART */}
+                          {chart.chart_type === 'line' && (
+                            <LineChart data={chart.data_snapshot}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey={chart.config.xAxis} hide />
+                              <YAxis />
+                              <Tooltip />
+                              {chart.config.yAxis.map((col, i) => (
+                                <Line key={col} type="monotone" dataKey={col} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={false} />
+                              ))}
+                            </LineChart>
+                          )}
+
+                          {/* AREA CHART */}
+                          {chart.chart_type === 'area' && (
+                            <AreaChart data={chart.data_snapshot}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey={chart.config.xAxis} hide />
+                              <YAxis />
+                              <Tooltip />
+                              {chart.config.yAxis.map((col, i) => (
+                                <Area key={col} type="monotone" dataKey={col} fill={COLORS[i % COLORS.length]} stroke={COLORS[i % COLORS.length]} fillOpacity={0.6} />
+                              ))}
+                            </AreaChart>
+                          )}
+
+                          {/* PIE CHART */}
+                          {chart.chart_type === 'pie' && (
+                            <PieChart>
+                              <Pie
+                                data={chart.data_snapshot.slice(0, 10).map(item => ({
+                                  name: String(item[chart.config.xAxis]),
+                                  value: Number(item[chart.config.yAxis[0]]) || 0,
+                                }))}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={40}
+                                outerRadius={80}
+                                fill="#8884d8"
+                                dataKey="value"
+                              >
+                                {chart.data_snapshot.slice(0, 10).map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          )}
+                          
+                          {/* SCATTER CHART */}
+                          {chart.chart_type === 'scatter' && (
+                            <ScatterChart>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis type="number" dataKey={chart.config.yAxis[0]} name={chart.config.yAxis[0]} />
+                              <YAxis type="number" dataKey={chart.config.yAxis[1]} name={chart.config.yAxis[1]} />
+                              <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                              <Scatter name="Data" data={chart.data_snapshot} fill="#8884d8" />
+                            </ScatterChart>
+                          )}
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* === SAVED CHARTS SECTION END === */}
 
           {/* Report History for this dataset */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
